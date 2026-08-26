@@ -1,0 +1,175 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --forest-primary: #1A3C2B;
+    --paper-bg: #F7F7F5;
+    --paper-card: #FFFFFF;
+    --paper-subtle: #EFEFEA;
+    --paper-border: #D0D0C7;
+  }
+
+  * {
+    border-color: #D0D0C7;
+  }
+
+  body {
+    background-color: #F7F7F5;
+    color: #1A3C2B;
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  /* Zero shadow architecture design rule */
+  *, ::before, ::after {
+    box-shadow: none !important;
+  }
+}
+
+/* Architectural Paper & CAD Grid Patterns */
+.bg-blueprint-grid {
+  background-size: 24px 24px, 120px 120px;
+  background-image: 
+    linear-gradient(to right, rgba(26, 60, 43, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 60, 43, 0.05) 1px, transparent 1px),
+    linear-gradient(to right, rgba(26, 60, 43, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 60, 43, 0.12) 1px, transparent 1px);
+}
+
+.bg-blueprint-grid-dense {
+  background-size: 12px 12px, 60px 60px;
+  background-image: 
+    linear-gradient(to right, rgba(26, 60, 43, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 60, 43, 0.06) 1px, transparent 1px),
+    linear-gradient(to right, rgba(26, 60, 43, 0.15) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 60, 43, 0.15) 1px, transparent 1px);
+}
+
+.bg-blueprint-dots {
+  background-image: radial-gradient(rgba(26, 60, 43, 0.2) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.bg-paper-grain {
+  background-color: #F7F7F5;
+  background-image: radial-gradient(rgba(26, 60, 43, 0.04) 1px, transparent 0);
+  background-size: 8px 8px;
+}
+
+/* CAD Diagonal Hatch for structural walls / zones */
+.cad-hatch-diagonal {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(26, 60, 43, 0.08),
+    rgba(26, 60, 43, 0.08) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.cad-hatch-dense {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(26, 60, 43, 0.15),
+    rgba(26, 60, 43, 0.15) 2px,
+    transparent 2px,
+    transparent 5px
+  );
+}
+
+/* Custom Technical Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F7F7F5;
+  border: 1px solid #D0D0C7;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1A3C2B;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2A533E;
+}
+
+/* Pulsing Path Animation */
+@keyframes routePulse {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -40; }
+}
+
+.animate-route-flow {
+  stroke-dasharray: 8 4;
+  animation: routePulse 1.2s linear infinite;
+}
+
+@keyframes pingSlow {
+  0% { transform: scale(1); opacity: 1; }
+  75%, 100% { transform: scale(2.4); opacity: 0; }
+}
+
+.animate-ping-slow {
+  animation: pingSlow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+
+/* ==========================================================================
+   HIGH-PRECISION ARCHITECTURAL PRINT STYLES (@media print)
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html, body {
+    background: #FFFFFF !important;
+    color: #1A3C2B !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: visible !important;
+  }
+
+  /* Hide all app chrome, headers, modals, sidebars */
+  header, aside, .no-print {
+    display: none !important;
+  }
+
+  /* Show only the printable blueprint sheet */
+  .printable-sheet-target {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 4mm !important;
+    background: #FFFFFF !important;
+    border: 2px solid #1A3C2B !important;
+    box-sizing: border-box !important;
+    z-index: 99999 !important;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  .print-page-break {
+    page-break-before: always !important;
+  }
+}
