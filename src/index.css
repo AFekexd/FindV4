@@ -169,7 +169,28 @@
     page-break-after: avoid !important;
   }
 
+  /* Show dedicated minimal ink-saving QR print sheet */
+  .printable-qr-target {
+    display: flex !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 15mm !important;
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    box-sizing: border-box !important;
+    z-index: 999999 !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    page-break-inside: avoid !important;
+  }
+
   .print-page-break {
     page-break-before: always !important;
   }
 }
+
