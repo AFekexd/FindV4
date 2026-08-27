@@ -1,10 +1,10 @@
 import type { Institution } from '../types';
 import { DEFAULT_INSTITUTIONS } from '../data/sampleCampuses';
 
-const STORAGE_KEY = 'archipath_institutions_hu_v2';
-const SELECTED_INSTITUTION_KEY = 'archipath_active_institution_id_hu';
-const SELECTED_BUILDING_KEY = 'archipath_active_building_id_hu';
-const SELECTED_FLOOR_KEY = 'archipath_active_floor_id_hu';
+const STORAGE_KEY = 'POLLAKFIND_institutions_hu_v2';
+const SELECTED_INSTITUTION_KEY = 'POLLAKFIND_active_institution_id_hu';
+const SELECTED_BUILDING_KEY = 'POLLAKFIND_active_building_id_hu';
+const SELECTED_FLOOR_KEY = 'POLLAKFIND_active_floor_id_hu';
 
 export function loadInstitutions(): Institution[] {
   try {
@@ -42,7 +42,7 @@ export function exportInstitutionsJSON(institutions: Institution[]): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `archipath-cad-adatbazis-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `POLLAKFIND-cad-adatbazis-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }

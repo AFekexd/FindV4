@@ -1,4 +1,4 @@
-import type { Institution, Room, Wall, Door, TransitConnector, PointOfInterest, NavNode, NavEdge, Floor, Building } from '../types';
+import type { Institution, Room, Zone, Wall, Door, TransitConnector, PointOfInterest, NavNode, NavEdge, Floor, Building } from '../types';
 
 // -------------------------------------------------------------
 // 1. INTÉZMÉNY: BUDAPESTI MŰSZAKI ÉS GAZDASÁGTUDOMÁNYI EGYETEM (BME)
@@ -144,6 +144,33 @@ const bmeF0_Transit: TransitConnector[] = [
 
 const bmeF0_POIs: PointOfInterest[] = [
   {
+    id: 'poi-bme-f0-entrance',
+    floorId: 'floor-bme-f0',
+    type: 'entrance',
+    name: 'Épület Főbejárat (Déli Kapu)',
+    position: { x: 500, y: 670 },
+    navNodeId: 'node-f0-entrance',
+    description: 'Főbejárat, automata forgóajtó, akadálymentes rámpával.',
+  },
+  {
+    id: 'poi-bme-f0-exit-west',
+    floorId: 'floor-bme-f0',
+    type: 'exit',
+    name: 'Nyugati Kert Kijárat',
+    position: { x: 420, y: 150 },
+    navNodeId: 'node-f0-stair-west',
+    description: 'Kijárat a belső campus park felé.',
+  },
+  {
+    id: 'poi-bme-f0-fire-exit',
+    floorId: 'floor-bme-f0',
+    type: 'fire_exit',
+    name: 'Északi Vészkijárat (Pánikzár)',
+    position: { x: 500, y: 120 },
+    navNodeId: 'node-f0-main-hall-3',
+    description: 'Vészhelyzeti menekülési kijárat pánikzárral.',
+  },
+  {
     id: 'poi-bme-f0-restroom-acc',
     floorId: 'floor-bme-f0',
     type: 'restroom_accessible',
@@ -222,6 +249,24 @@ const bmeF0_Doors: Door[] = [
   { id: 'd-f0-2', floorId: 'floor-bme-f0', start: { x: 620, y: 220 }, end: { x: 620, y: 240 }, type: 'single' },
   { id: 'd-f0-3', floorId: 'floor-bme-f0', start: { x: 620, y: 460 }, end: { x: 620, y: 480 }, type: 'double' },
   { id: 'd-f0-4', floorId: 'floor-bme-f0', start: { x: 480, y: 660 }, end: { x: 520, y: 660 }, type: 'sliding' },
+];
+
+const bmeF0_Zones: Zone[] = [
+  {
+    id: 'zone-bme-f0-central-aula',
+    floorId: 'floor-bme-f0',
+    name: 'Központi Aula & Díszudvar',
+    code: 'Z-01',
+    type: 'atrium',
+    polygon: [
+      { x: 380, y: 120 },
+      { x: 620, y: 120 },
+      { x: 620, y: 520 },
+      { x: 380, y: 520 },
+    ],
+    description: 'Nagy belmagasságú természetes fényudvar, kiállítási és rendezvénytér közösségi pihenőbútorokkal.',
+    tags: ['Aula', 'Átrium', 'Wi-Fi Hotspot', 'Pihenőzóna'],
+  },
 ];
 
 // --- 1. Emelet ---
@@ -601,6 +646,7 @@ const bmeBuildingI: Building = {
       elevationMeters: 0.0,
       width: 1000,
       height: 720,
+      zones: bmeF0_Zones,
       rooms: bmeF0_Rooms,
       walls: bmeF0_Walls,
       doors: bmeF0_Doors,
@@ -747,6 +793,24 @@ const semmelweisF0_Transit: TransitConnector[] = [
 
 const semmelweisF0_POIs: PointOfInterest[] = [
   {
+    id: 'poi-sote-f0-entrance',
+    floorId: 'floor-sote-f0',
+    type: 'entrance',
+    name: 'Klinika Főbejárat (Mentőbeálló)',
+    position: { x: 510, y: 670 },
+    navNodeId: 'node-sj-f0-entrance',
+    description: 'Központi automata ajtó és betegfelvételi bejárat.',
+  },
+  {
+    id: 'poi-sote-f0-fire-exit',
+    floorId: 'floor-sote-f0',
+    type: 'fire_exit',
+    name: 'Északi Vészkijárat',
+    position: { x: 510, y: 130 },
+    navNodeId: 'node-sj-f0-center',
+    description: 'Pánikzáras sürgősségi menekülési kijárat.',
+  },
+  {
     id: 'poi-sote-f0-aed',
     floorId: 'floor-sote-f0',
     type: 'aed',
@@ -799,6 +863,24 @@ const semmelweisF0_Doors: Door[] = [
   { id: 'd-sj0-1', floorId: 'floor-sote-f0', start: { x: 420, y: 250 }, end: { x: 420, y: 270 }, type: 'double' },
   { id: 'd-sj0-2', floorId: 'floor-sote-f0', start: { x: 420, y: 520 }, end: { x: 420, y: 540 }, type: 'single' },
   { id: 'd-sj0-3', floorId: 'floor-sote-f0', start: { x: 600, y: 370 }, end: { x: 600, y: 390 }, type: 'double' },
+];
+
+const semmelweisF0_Zones: Zone[] = [
+  {
+    id: 'zone-sote-f0-main-atrium',
+    floorId: 'floor-sote-f0',
+    name: 'Klinikai Főaula & Betegirányító Csarnok',
+    code: 'Z-01',
+    type: 'atrium',
+    polygon: [
+      { x: 420, y: 120 },
+      { x: 600, y: 120 },
+      { x: 600, y: 640 },
+      { x: 420, y: 640 },
+    ],
+    description: 'Tágas, akadálymentes betegfogadó és információs aula digitális hívórendszerrel.',
+    tags: ['Aula', 'Betegfogadás', 'Akadálymentes'],
+  },
 ];
 
 // Semmelweis 1. Emelet
@@ -934,6 +1016,7 @@ const semmelweisBuilding: Building = {
       elevationMeters: 0.0,
       width: 1000,
       height: 720,
+      zones: semmelweisF0_Zones,
       rooms: semmelweisF0_Rooms,
       walls: semmelweisF0_Walls,
       doors: semmelweisF0_Doors,

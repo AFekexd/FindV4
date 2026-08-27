@@ -1,4 +1,4 @@
-import type { Point } from '../types';
+import type { Point, Wall, Room } from '../types';
 
 export const PIXELS_PER_METER = 20; // 20 canvas units = 1 meter
 
@@ -283,6 +283,27 @@ export function segmentIntersectsPolygon(p1: Point, p2: Point, polygon: Point[])
   return false;
 }
 
+export function getSegmentIntersection(
+  p1: Point,
+  p2: Point,
+  p3: Point,
+  p4: Point
+): Point | null {
+  const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+  if (Math.abs(denom) < 1e-6) return null;
+
+  const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom;
+  const u = -((p1.x - p2.x) * (p1.y - p3.y) - (p1.y - p2.y) * (p1.x - p3.x)) / denom;
+
+  if (t >= -0.001 && t <= 1.001 && u >= -0.001 && u <= 1.001) {
+    return {
+      x: Math.round(p1.x + t * (p2.x - p1.x)),
+      y: Math.round(p1.y + t * (p2.y - p1.y)),
+    };
+  }
+  return null;
+}
+
 /**
  * Validates whether a corridor path segment from p1 to p2 has a clear line-of-sight
  * without cutting through foreign room boundaries or impenetrable solid walls.
@@ -291,10 +312,13 @@ export function hasClearLineOfSight(
   p1: Point,
   p2: Point,
   rooms: { id: string; polygon: Point[] }[],
-  ignoreRoomIds: string[] = []
+  ignoreRoomIds: string[] = [],
+  walls: { id: string; start: Point; end: Point }[] = [],
+  doors: { id: string; start: Point; end: Point }[] = []
 ): boolean {
   if (distance(p1, p2) < 2) return true;
 
+  // 1. Check Room Polygon Intersections
   for (const room of rooms) {
     if (ignoreRoomIds.includes(room.id)) continue;
     if (segmentIntersectsPolygon(p1, p2, room.polygon)) {
@@ -302,7 +326,187 @@ export function hasClearLineOfSight(
     }
   }
 
+  // 2. Check Freestanding Solid Wall Intersections (unless crossing at a Door on that wall)
+  if (walls && walls.length > 0) {
+    for (const wall of walls) {
+      if (doSegmentsIntersect(p1, p2, wall.start, wall.end)) {
+        const intersection = getSegmentIntersection(p1, p2, wall.start, wall.end);
+        let passesThroughDoor = false;
+
+        if (doors && doors.length > 0 && intersection) {
+          for (const door of doors) {
+            const doorMid: Point = {
+              x: (door.start.x + door.end.x) / 2,
+              y: (door.start.y + door.end.y) / 2,
+            };
+            // Ensure this door actually sits on or snaps to this specific wall
+            const distDoorToWall = pointToSegmentDistance(doorMid, wall.start, wall.end);
+            if (distDoorToWall <= 14) {
+              const doorWidth = distance(door.start, door.end);
+              const doorAperture = Math.max(22, doorWidth / 2 + 10);
+              if (distance(intersection, doorMid) <= doorAperture) {
+                passesThroughDoor = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!passesThroughDoor) {
+          return false;
+        }
+      }
+    }
+  }
+
   return true;
+}
+
+/**
+ * Projects a point onto a line segment and calculates closest point and distance
+ */
+export function projectPointOntoSegment(
+  p: Point,
+  a: Point,
+  b: Point
+): { point: Point; distance: number; t: number } {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < 1e-6) {
+    return { point: { ...a }, distance: distance(p, a), t: 0 };
+  }
+
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+
+  const proj: Point = {
+    x: Math.round(a.x + t * dx),
+    y: Math.round(a.y + t * dy),
+  };
+
+  return {
+    point: proj,
+    distance: distance(p, proj),
+    t,
+  };
+}
+
+/**
+ * Finds the nearest wall or room edge to a point within maxDistance (default 50px)
+ */
+export function findNearestWallSegment(
+  point: Point,
+  walls: Wall[] = [],
+  rooms: Room[] = [],
+  maxDistance: number = 50
+): {
+  start: Point;
+  end: Point;
+  projPoint: Point;
+  angleRad: number;
+  unitTangent: Point;
+  unitNormal: Point;
+  distance: number;
+} | null {
+  let bestMatch: {
+    start: Point;
+    end: Point;
+    projPoint: Point;
+    angleRad: number;
+    unitTangent: Point;
+    unitNormal: Point;
+    distance: number;
+  } | null = null;
+  let minDistance = maxDistance;
+
+  // 1. Check freestanding walls
+  for (const wall of walls || []) {
+    const proj = projectPointOntoSegment(point, wall.start, wall.end);
+    if (proj.distance < minDistance) {
+      minDistance = proj.distance;
+      const dx = wall.end.x - wall.start.x;
+      const dy = wall.end.y - wall.start.y;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      const unitTangent = { x: dx / len, y: dy / len };
+      const unitNormal = { x: -unitTangent.y, y: unitTangent.x };
+      bestMatch = {
+        start: wall.start,
+        end: wall.end,
+        projPoint: proj.point,
+        angleRad: Math.atan2(dy, dx),
+        unitTangent,
+        unitNormal,
+        distance: proj.distance,
+      };
+    }
+  }
+
+  // 2. Check room polygon edges
+  for (const room of rooms || []) {
+    const edges = getPolygonEdges(room.polygon);
+    for (const edge of edges) {
+      const proj = projectPointOntoSegment(point, edge.start, edge.end);
+      if (proj.distance < minDistance) {
+        minDistance = proj.distance;
+        const dx = edge.end.x - edge.start.x;
+        const dy = edge.end.y - edge.start.y;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const unitTangent = { x: dx / len, y: dy / len };
+        const unitNormal = { x: -unitTangent.y, y: unitTangent.x };
+        bestMatch = {
+          start: edge.start,
+          end: edge.end,
+          projPoint: proj.point,
+          angleRad: Math.atan2(dy, dx),
+          unitTangent,
+          unitNormal,
+          distance: proj.distance,
+        };
+      }
+    }
+  }
+
+  return bestMatch;
+}
+
+/**
+ * Computes door start and end points aligned to nearest wall (horizontal, vertical, or diagonal)
+ */
+export function alignDoorToWall(
+  point: Point,
+  walls: Wall[] = [],
+  rooms: Room[] = [],
+  doorWidth: number = 18
+): { start: Point; end: Point; angle: number; isSnapped: boolean; normal: Point } {
+  const match = findNearestWallSegment(point, walls, rooms, 50);
+  const halfWidth = doorWidth / 2;
+
+  if (match) {
+    const { projPoint, unitTangent, unitNormal, angleRad } = match;
+    return {
+      start: {
+        x: Math.round(projPoint.x - unitTangent.x * halfWidth),
+        y: Math.round(projPoint.y - unitTangent.y * halfWidth),
+      },
+      end: {
+        x: Math.round(projPoint.x + unitTangent.x * halfWidth),
+        y: Math.round(projPoint.y + unitTangent.y * halfWidth),
+      },
+      angle: angleRad,
+      isSnapped: true,
+      normal: unitNormal,
+    };
+  }
+
+  // Default horizontal if no wall nearby
+  return {
+    start: { x: Math.round(point.x - halfWidth), y: Math.round(point.y) },
+    end: { x: Math.round(point.x + halfWidth), y: Math.round(point.y) },
+    angle: 0,
+    isSnapped: false,
+    normal: { x: 0, y: -1 },
+  };
 }
 
 

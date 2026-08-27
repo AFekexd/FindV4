@@ -2,7 +2,10 @@ import type {
   Floor,
   Building,
   Room,
+  Zone,
+  Door,
   PointOfInterest,
+  TransitConnector,
   RouteResult,
   RouteStep,
   RoutePreference,
@@ -18,7 +21,7 @@ import {
   getPolygonEdges,
   pointToSegmentDistance,
   hasClearLineOfSight,
-  segmentIntersectsPolygon,
+  pointInPolygon,
 } from './geometry';
 
 export interface GraphNode {
@@ -43,18 +46,27 @@ export interface GraphNode {
 }
 
 /**
- * Builds a strictly collision-free, door-aware multi-floor navigation graph.
- * Guarantees routes NEVER clip through foreign room polygons.
+ * Builds a strictly collision-free, door- and wall-aware multi-floor navigation graph.
+ * Guarantees routes NEVER clip through foreign room polygons or impenetrable walls.
  */
 export function buildNavGraph(
   building: Building,
-  preferences: RoutePreference
+  preferences: RoutePreference = { accessibilityOnly: false, prioritizeElevators: false, fastestRoute: true }
 ): Map<string, GraphNode> {
   const graph = new Map<string, GraphNode>();
 
   for (const floor of building.floors) {
+    const rooms = floor.rooms || [];
+    const zones = floor.zones || [];
+    const walls = floor.walls || [];
+    const doors = floor.doors || [];
+    const pois = floor.pois || [];
+    const transits = floor.transitConnectors || [];
+    const navNodes = floor.navNodes || [];
+    const navEdges = floor.navEdges || [];
+
     // 1. Add all standard explicit navNodes
-    for (const node of floor.navNodes) {
+    for (const node of navNodes) {
       graph.set(node.id, {
         id: node.id,
         floorId: floor.id,
@@ -70,18 +82,17 @@ export function buildNavGraph(
       });
     }
 
-    // 2. Add explicit floor navEdges ONLY if they do not cut through foreign room polygons
-    for (const edge of floor.navEdges) {
+    // 2. Add explicit floor navEdges
+    for (const edge of navEdges) {
       if (preferences.accessibilityOnly && !edge.isAccessible) {
         continue;
       }
       const from = graph.get(edge.fromNodeId);
       const to = graph.get(edge.toNodeId);
       if (from && to) {
-        // Validate clear line of sight in corridor
-        const isClear = hasClearLineOfSight(from.position, to.position, floor.rooms);
+        const isClear = hasClearLineOfSight(from.position, to.position, rooms, [], walls, doors);
         const dist = edge.distance || distance(from.position, to.position);
-        const weight = isClear ? dist : dist + 50000; // Heavily penalize room penetration if any
+        const weight = isClear ? dist : dist + 50000;
 
         if (!from.neighbors.some((n) => n.nodeId === to.id)) {
           from.neighbors.push({
@@ -101,22 +112,18 @@ export function buildNavGraph(
     }
 
     // 3. Generate Convex Corner Detour Nodes around room corners into corridors
-    // This allows smooth navigation around room corners without cutting through walls
-    const cornerNodes: GraphNode[] = [];
-    floor.rooms.forEach((room) => {
+    rooms.forEach((room) => {
       const roomCenter = polygonCentroid(room.polygon);
       room.polygon.forEach((vertex, vIdx) => {
-        // Vector pointing outwards from room center through vertex
         const vx = vertex.x - roomCenter.x;
         const vy = vertex.y - roomCenter.y;
         const vLen = Math.max(1, Math.hypot(vx, vy));
         const cornerPos: Point = {
-          x: Math.round(vertex.x + (vx / vLen) * 22),
-          y: Math.round(vertex.y + (vy / vLen) * 22),
+          x: Math.round(vertex.x + (vx / vLen) * 24),
+          y: Math.round(vertex.y + (vy / vLen) * 24),
         };
 
-        // Only use corner node if it lies outside all room polygons
-        if (hasClearLineOfSight(cornerPos, cornerPos, floor.rooms)) {
+        if (hasClearLineOfSight(cornerPos, cornerPos, rooms, [], walls, doors)) {
           const cornerNodeId = `corner-${room.id}-${vIdx}`;
           const cNode: GraphNode = {
             id: cornerNodeId,
@@ -131,17 +138,178 @@ export function buildNavGraph(
             neighbors: [],
           };
           graph.set(cornerNodeId, cNode);
-          cornerNodes.push(cNode);
         }
       });
     });
 
-    // 4. Synthesize Rooms & their Doorway Connections
-    for (const room of floor.rooms) {
+    // 4. Generate Wall Endpoint Clearance Nodes
+    walls.forEach((wall) => {
+      const tips = [wall.start, wall.end];
+      tips.forEach((tip, tIdx) => {
+        const dx = tip === wall.start ? wall.start.x - wall.end.x : wall.end.x - wall.start.x;
+        const dy = tip === wall.start ? wall.start.y - wall.end.y : wall.end.y - wall.start.y;
+        const len = Math.max(1, Math.hypot(dx, dy));
+        const tipPos: Point = {
+          x: Math.round(tip.x + (dx / len) * 22),
+          y: Math.round(tip.y + (dy / len) * 22),
+        };
+
+        if (hasClearLineOfSight(tipPos, tipPos, rooms, [], walls, doors)) {
+          const wallNodeId = `wall-tip-${wall.id}-${tIdx}`;
+          if (!graph.has(wallNodeId)) {
+            const wNode: GraphNode = {
+              id: wallNodeId,
+              floorId: floor.id,
+              floorLevel: floor.level,
+              floorName: floor.name,
+              floorShortCode: floor.shortCode,
+              buildingName: building.name,
+              position: tipPos,
+              type: 'corridor',
+              label: 'Folyosó átjáró',
+              neighbors: [],
+            };
+            graph.set(wallNodeId, wNode);
+          }
+        }
+      });
+    });
+
+    // 5. Adaptive Walkable Space Corridor Grid (Grid sampling for open floor plans)
+    const floorWidth = floor.width || 1200;
+    const floorHeight = floor.height || 800;
+    const gridStep = 60;
+
+    for (let x = 60; x < floorWidth; x += gridStep) {
+      for (let y = 60; y < floorHeight; y += gridStep) {
+        const pt: Point = { x, y };
+        let isInsideRoom = false;
+        for (const rm of rooms) {
+          if (pointInPolygon(pt, rm.polygon)) {
+            isInsideRoom = true;
+            break;
+          }
+        }
+        if (isInsideRoom) continue;
+
+        let isNearWall = false;
+        for (const w of walls) {
+          if (pointToSegmentDistance(pt, w.start, w.end) < 18) {
+            isNearWall = true;
+            break;
+          }
+        }
+        if (isNearWall) continue;
+
+        const gridNodeId = `grid-${floor.id}-${x}-${y}`;
+        const gNode: GraphNode = {
+          id: gridNodeId,
+          floorId: floor.id,
+          floorLevel: floor.level,
+          floorName: floor.name,
+          floorShortCode: floor.shortCode,
+          buildingName: building.name,
+          position: pt,
+          type: 'corridor',
+          label: 'Folyosó',
+          neighbors: [],
+        };
+        graph.set(gridNodeId, gNode);
+      }
+    }
+
+    // 5.5 Synthesize All Doors on Floor (Wall Doors, Corridor Doors, Room Doors)
+    const doorApproachMap = new Map<string, { midId: string; frontId: string; backId: string }>();
+
+    for (const door of doors) {
+      const doorMid: Point = {
+        x: Math.round((door.start.x + door.end.x) / 2),
+        y: Math.round((door.start.y + door.end.y) / 2),
+      };
+
+      const ddx = door.end.x - door.start.x;
+      const ddy = door.end.y - door.start.y;
+      const dlen = Math.max(1, Math.hypot(ddx, ddy));
+      const nx = -ddy / dlen;
+      const ny = ddx / dlen;
+
+      const frontPos: Point = {
+        x: Math.round(doorMid.x + nx * 24),
+        y: Math.round(doorMid.y + ny * 24),
+      };
+      const backPos: Point = {
+        x: Math.round(doorMid.x - nx * 24),
+        y: Math.round(doorMid.y - ny * 24),
+      };
+
+      const midNodeId = `door-mid-${door.id}`;
+      const frontNodeId = `door-front-${door.id}`;
+      const backNodeId = `door-back-${door.id}`;
+
+      const midNode: GraphNode = {
+        id: midNodeId,
+        floorId: floor.id,
+        floorLevel: floor.level,
+        floorName: floor.name,
+        floorShortCode: floor.shortCode,
+        buildingName: building.name,
+        position: doorMid,
+        type: 'door',
+        refId: door.id,
+        label: 'Ajtó nyílás',
+        neighbors: [],
+      };
+
+      const frontNode: GraphNode = {
+        id: frontNodeId,
+        floorId: floor.id,
+        floorLevel: floor.level,
+        floorName: floor.name,
+        floorShortCode: floor.shortCode,
+        buildingName: building.name,
+        position: frontPos,
+        type: 'corridor',
+        refId: door.id,
+        label: 'Ajtó előtér',
+        neighbors: [],
+      };
+
+      const backNode: GraphNode = {
+        id: backNodeId,
+        floorId: floor.id,
+        floorLevel: floor.level,
+        floorName: floor.name,
+        floorShortCode: floor.shortCode,
+        buildingName: building.name,
+        position: backPos,
+        type: 'corridor',
+        refId: door.id,
+        label: 'Ajtó háttér',
+        neighbors: [],
+      };
+
+      graph.set(midNodeId, midNode);
+      graph.set(frontNodeId, frontNode);
+      graph.set(backNodeId, backNode);
+
+      // Connect Front <===> Mid <===> Back (Unconditional traversable passage through doorway)
+      frontNode.neighbors.push({ nodeId: midNodeId, weight: 24, isAccessible: true });
+      midNode.neighbors.push({ nodeId: frontNodeId, weight: 24, isAccessible: true });
+
+      backNode.neighbors.push({ nodeId: midNodeId, weight: 24, isAccessible: true });
+      midNode.neighbors.push({ nodeId: backNodeId, weight: 24, isAccessible: true });
+
+      frontNode.neighbors.push({ nodeId: backNodeId, weight: 48, isAccessible: true });
+      backNode.neighbors.push({ nodeId: frontNodeId, weight: 48, isAccessible: true });
+
+      doorApproachMap.set(door.id, { midId: midNodeId, frontId: frontNodeId, backId: backNodeId });
+    }
+
+    // 6. Synthesize Rooms & their Doorway Connections
+    for (const room of rooms) {
       const roomCenter = polygonCentroid(room.polygon);
       const roomNodeId = `room-node-${room.id}`;
 
-      // A. Register the Room Center Node
       const roomNode: GraphNode = {
         id: roomNodeId,
         floorId: floor.id,
@@ -157,161 +325,232 @@ export function buildNavGraph(
       };
       graph.set(roomNodeId, roomNode);
 
-      // B. Determine the exact doorway point for this room
-      let doorPos: Point | null = null;
+      // Match closest door in floor.doors
+      let matchedDoor: Door | null = null;
+      let minDoorDist = Infinity;
       const roomEdges = getPolygonEdges(room.polygon);
 
-      // Check if an explicit door in floor.doors lies on this room's perimeter
-      for (const door of floor.doors) {
+      for (const door of doors) {
         const dMid: Point = {
-          x: Math.round((door.start.x + door.end.x) / 2),
-          y: Math.round((door.start.y + door.end.y) / 2),
+          x: (door.start.x + door.end.x) / 2,
+          y: (door.start.y + door.end.y) / 2,
         };
         for (const edge of roomEdges) {
-          if (pointToSegmentDistance(dMid, edge.start, edge.end) <= 35) {
-            doorPos = dMid;
-            break;
+          const d = pointToSegmentDistance(dMid, edge.start, edge.end);
+          if (d < minDoorDist && d <= 35) {
+            minDoorDist = d;
+            matchedDoor = door;
           }
         }
-        if (doorPos) break;
       }
 
-      // If not found, use room.doorLocation
-      if (!doorPos && room.doorLocation) {
-        doorPos = { ...room.doorLocation };
-      }
+      if (matchedDoor && doorApproachMap.has(matchedDoor.id)) {
+        const { midId, frontId, backId } = doorApproachMap.get(matchedDoor.id)!;
+        const frontNode = graph.get(frontId)!;
+        const backNode = graph.get(backId)!;
+        const midNode = graph.get(midId)!;
 
-      // If still not found, pick the closest wall midpoint to the nearest corridor node
-      if (!doorPos && roomEdges.length > 0) {
-        let bestDist = Infinity;
-        let bestMid = roomEdges[0].midPoint;
-        for (const edge of roomEdges) {
-          for (const node of floor.navNodes) {
-            const d = distance(edge.midPoint, node.position);
-            if (d < bestDist) {
-              bestDist = d;
-              bestMid = edge.midPoint;
-            }
-          }
+        // Label door node with room name and register alias for direct doorway routing
+        midNode.label = `${room.name} (${room.code})`;
+        midNode.refId = room.id;
+        graph.set(`door-room-${room.id}`, midNode);
+
+        // Check which approach node is inside or closer to room center
+        const isFrontInRoom = pointInPolygon(frontNode.position, room.polygon);
+        const isBackInRoom = pointInPolygon(backNode.position, room.polygon);
+
+        let insideNode = midNode;
+        if (isFrontInRoom && !isBackInRoom) insideNode = frontNode;
+        else if (isBackInRoom && !isFrontInRoom) insideNode = backNode;
+        else {
+          const dFront = distance(frontNode.position, roomCenter);
+          const dBack = distance(backNode.position, roomCenter);
+          insideNode = dFront < dBack ? frontNode : backNode;
         }
-        doorPos = bestMid;
-      }
 
-      if (!doorPos) {
-        doorPos = { x: roomCenter.x + 20, y: roomCenter.y };
-      }
-
-      // C. Calculate Door Approach Point (Stepped 24px outside room into the corridor)
-      const cdx = doorPos.x - roomCenter.x;
-      const cdy = doorPos.y - roomCenter.y;
-      const cLen = Math.max(1, Math.hypot(cdx, cdy));
-      const approachPos: Point = {
-        x: Math.round(doorPos.x + (cdx / cLen) * 24),
-        y: Math.round(doorPos.y + (cdy / cLen) * 24),
-      };
-
-      // D. Register Room Door Node & Door Approach Node
-      const doorNodeId = `door-room-${room.id}`;
-      const doorNode: GraphNode = {
-        id: doorNodeId,
-        floorId: floor.id,
-        floorLevel: floor.level,
-        floorName: floor.name,
-        floorShortCode: floor.shortCode,
-        buildingName: building.name,
-        position: doorPos,
-        type: 'door',
-        refId: room.id,
-        label: `Ajtó: ${room.name}`,
-        neighbors: [],
-      };
-      graph.set(doorNodeId, doorNode);
-
-      const approachNodeId = `approach-room-${room.id}`;
-      const approachNode: GraphNode = {
-        id: approachNodeId,
-        floorId: floor.id,
-        floorLevel: floor.level,
-        floorName: floor.name,
-        floorShortCode: floor.shortCode,
-        buildingName: building.name,
-        position: approachPos,
-        type: 'corridor',
-        refId: room.id,
-        label: `Folyosói előtér: ${room.name}`,
-        neighbors: [],
-      };
-      graph.set(approachNodeId, approachNode);
-
-      // CONNECT: Room Center <===> Room Door
-      const centerToDoorDist = distance(roomCenter, doorPos);
-      roomNode.neighbors.push({ nodeId: doorNodeId, weight: centerToDoorDist, isAccessible: true });
-      doorNode.neighbors.push({ nodeId: roomNodeId, weight: centerToDoorDist, isAccessible: true });
-
-      // CONNECT: Room Door <===> Door Approach Point (out into the corridor)
-      const doorToApproachDist = distance(doorPos, approachPos);
-      doorNode.neighbors.push({ nodeId: approachNodeId, weight: doorToApproachDist, isAccessible: true });
-      approachNode.neighbors.push({ nodeId: doorNodeId, weight: doorToApproachDist, isAccessible: true });
-
-      // CONNECT: Door Approach Point <===> Visible Corridor Nodes with CLEAR LINE OF SIGHT
-      const candidateCorridors = Array.from(graph.values()).filter(
-        (gn) =>
-          gn.floorId === floor.id &&
-          gn.id !== roomNodeId &&
-          gn.id !== doorNodeId &&
-          gn.id !== approachNodeId &&
-          gn.type !== 'room' &&
-          gn.type !== 'door'
-      );
-
-      // Connect to closest corridor nodes that have unobstructed line of sight (no room cutting)
-      const clearConnections = candidateCorridors
-        .map((corridor) => ({
-          node: corridor,
-          dist: distance(approachPos, corridor.position),
-          clear: hasClearLineOfSight(approachPos, corridor.position, floor.rooms),
-        }))
-        .filter((c) => c.clear)
-        .sort((a, b) => a.dist - b.dist)
-        .slice(0, 4);
-
-      for (const { node: corridor, dist } of clearConnections) {
-        approachNode.neighbors.push({ nodeId: corridor.id, weight: dist, isAccessible: true });
-        corridor.neighbors.push({ nodeId: approachNodeId, weight: dist, isAccessible: true });
-      }
-
-      // If no corridor nodes had line of sight, connect to nearest clear corner nodes
-      if (clearConnections.length === 0) {
-        const clearCorners = cornerNodes
-          .map((cn) => ({
-            node: cn,
-            dist: distance(approachPos, cn.position),
-            clear: hasClearLineOfSight(approachPos, cn.position, floor.rooms),
-          }))
-          .filter((c) => c.clear)
-          .sort((a, b) => a.dist - b.dist)
-          .slice(0, 3);
-
-        for (const { node: cNode, dist } of clearCorners) {
-          approachNode.neighbors.push({ nodeId: cNode.id, weight: dist, isAccessible: true });
-          cNode.neighbors.push({ nodeId: approachNodeId, weight: dist, isAccessible: true });
+        const cDist = distance(roomCenter, insideNode.position);
+        roomNode.neighbors.push({ nodeId: insideNode.id, weight: cDist, isAccessible: true });
+        insideNode.neighbors.push({ nodeId: roomNodeId, weight: cDist, isAccessible: true });
+      } else {
+        // Fallback Doorway on room perimeter
+        let fallbackDoorPos = room.doorLocation;
+        if (!fallbackDoorPos && roomEdges.length > 0) {
+          fallbackDoorPos = roomEdges[0].midPoint;
         }
+        if (!fallbackDoorPos) {
+          fallbackDoorPos = { x: roomCenter.x + 20, y: roomCenter.y };
+        }
+
+        const cdx = fallbackDoorPos.x - roomCenter.x;
+        const cdy = fallbackDoorPos.y - roomCenter.y;
+        const cLen = Math.max(1, Math.hypot(cdx, cdy));
+        let approachPos: Point = {
+          x: Math.round(fallbackDoorPos.x + (cdx / cLen) * 24),
+          y: Math.round(fallbackDoorPos.y + (cdy / cLen) * 24),
+        };
+        if (pointInPolygon(approachPos, room.polygon)) {
+          approachPos = {
+            x: Math.round(fallbackDoorPos.x - (cdx / cLen) * 24),
+            y: Math.round(fallbackDoorPos.y - (cdy / cLen) * 24),
+          };
+        }
+
+        const doorNodeId = `door-room-${room.id}`;
+        const doorNode: GraphNode = {
+          id: doorNodeId,
+          floorId: floor.id,
+          floorLevel: floor.level,
+          floorName: floor.name,
+          floorShortCode: floor.shortCode,
+          buildingName: building.name,
+          position: fallbackDoorPos,
+          type: 'door',
+          refId: room.id,
+          label: `${room.name} (${room.code})`,
+          neighbors: [],
+        };
+        graph.set(doorNodeId, doorNode);
+
+        const approachNodeId = `approach-room-${room.id}`;
+        const approachNode: GraphNode = {
+          id: approachNodeId,
+          floorId: floor.id,
+          floorLevel: floor.level,
+          floorName: floor.name,
+          floorShortCode: floor.shortCode,
+          buildingName: building.name,
+          position: approachPos,
+          type: 'corridor',
+          refId: room.id,
+          label: `Folyosói előtér: ${room.name}`,
+          neighbors: [],
+        };
+        graph.set(approachNodeId, approachNode);
+
+        const centerToDoorDist = distance(roomCenter, fallbackDoorPos);
+        roomNode.neighbors.push({ nodeId: doorNodeId, weight: centerToDoorDist, isAccessible: true });
+        doorNode.neighbors.push({ nodeId: roomNodeId, weight: centerToDoorDist, isAccessible: true });
+
+        const doorToApproachDist = distance(fallbackDoorPos, approachPos);
+        doorNode.neighbors.push({ nodeId: approachNodeId, weight: doorToApproachDist, isAccessible: true });
+        approachNode.neighbors.push({ nodeId: doorNodeId, weight: doorToApproachDist, isAccessible: true });
       }
     }
 
-    // 5. Connect Corner Detour Nodes to each other and to corridor hubs with clear line of sight
-    const corridorAndCorners = Array.from(graph.values()).filter(
-      (gn) => gn.floorId === floor.id && (gn.type === 'corner' || gn.type === 'corridor' || gn.type === 'hub')
+    // 6.5 Synthesize Zones (Aulas, Atriums, Courtyards, Lounges)
+    for (const zone of zones) {
+      const zoneCenter = polygonCentroid(zone.polygon);
+      const zoneNodeId = `zone-node-${zone.id}`;
+      const zNode: GraphNode = {
+        id: zoneNodeId,
+        floorId: floor.id,
+        floorLevel: floor.level,
+        floorName: floor.name,
+        floorShortCode: floor.shortCode,
+        buildingName: building.name,
+        position: zoneCenter,
+        type: 'room',
+        refId: zone.id,
+        label: `${zone.name} (${zone.code || 'Zóna'})`,
+        neighbors: [],
+      };
+      graph.set(zoneNodeId, zNode);
+
+      const zEdges = getPolygonEdges(zone.polygon);
+      zEdges.forEach((edge, eIdx) => {
+        const edgeMid = edge.midPoint;
+        const appNodeId = `approach-zone-${zone.id}-${eIdx}`;
+        const appNode: GraphNode = {
+          id: appNodeId,
+          floorId: floor.id,
+          floorLevel: floor.level,
+          floorName: floor.name,
+          floorShortCode: floor.shortCode,
+          buildingName: building.name,
+          position: edgeMid,
+          type: 'corridor',
+          refId: zone.id,
+          label: `${zone.name} Átjáró`,
+          neighbors: [],
+        };
+        graph.set(appNodeId, appNode);
+        const d = distance(zoneCenter, edgeMid);
+        zNode.neighbors.push({ nodeId: appNodeId, weight: d, isAccessible: true });
+        appNode.neighbors.push({ nodeId: zoneNodeId, weight: d, isAccessible: true });
+      });
+    }
+
+    // 7. Register POIs (Each POI gets its own dedicated node at its exact position)
+    for (const poi of pois) {
+      const poiNodeId = `poi-node-${poi.id}`;
+      const pNode: GraphNode = {
+        id: poiNodeId,
+        floorId: floor.id,
+        floorLevel: floor.level,
+        floorName: floor.name,
+        floorShortCode: floor.shortCode,
+        buildingName: building.name,
+        position: { ...poi.position },
+        type: 'poi',
+        refId: poi.id,
+        label: poi.name,
+        neighbors: [],
+      };
+      graph.set(poiNodeId, pNode);
+
+      // Link to explicit navNode if specified
+      if (poi.navNodeId && graph.has(poi.navNodeId)) {
+        const linkNode = graph.get(poi.navNodeId)!;
+        const d = distance(pNode.position, linkNode.position);
+        pNode.neighbors.push({ nodeId: linkNode.id, weight: d, isAccessible: true });
+        linkNode.neighbors.push({ nodeId: pNode.id, weight: d, isAccessible: true });
+      }
+    }
+
+    // 8. Register Transit Connectors
+    for (const transit of transits) {
+      const transitNodeId = `transit-node-${transit.id}`;
+      const tNode: GraphNode = {
+        id: transitNodeId,
+        floorId: floor.id,
+        floorLevel: floor.level,
+        floorName: floor.name,
+        floorShortCode: floor.shortCode,
+        buildingName: building.name,
+        position: { ...transit.position },
+        type: 'transit',
+        refId: transit.id,
+        label: transit.name,
+        neighbors: [],
+      };
+      graph.set(transitNodeId, tNode);
+
+      if (transit.navNodeId && graph.has(transit.navNodeId)) {
+        const linkNode = graph.get(transit.navNodeId)!;
+        const d = distance(tNode.position, linkNode.position);
+        tNode.neighbors.push({ nodeId: linkNode.id, weight: d, isAccessible: transit.isAccessible });
+        linkNode.neighbors.push({ nodeId: tNode.id, weight: d, isAccessible: transit.isAccessible });
+      }
+    }
+
+    // 9. Inter-connect all walkable corridor and gateway nodes on this floor
+    const walkableNodes = Array.from(graph.values()).filter(
+      (gn) => gn.floorId === floor.id && gn.type !== 'room'
     );
 
-    for (let i = 0; i < corridorAndCorners.length; i++) {
-      for (let j = i + 1; j < corridorAndCorners.length; j++) {
-        const nA = corridorAndCorners[i];
-        const nB = corridorAndCorners[j];
+    for (let i = 0; i < walkableNodes.length; i++) {
+      const nA = walkableNodes[i];
+      for (let j = i + 1; j < walkableNodes.length; j++) {
+        const nB = walkableNodes[j];
         const d = distance(nA.position, nB.position);
 
-        if (d <= 350) {
-          if (hasClearLineOfSight(nA.position, nB.position, floor.rooms)) {
+        const maxDist =
+          nA.type === 'door' || nB.type === 'door' || nA.type === 'poi' || nB.type === 'poi' || nA.type === 'transit' || nB.type === 'transit'
+            ? 350
+            : 260;
+
+        if (d <= maxDist) {
+          if (hasClearLineOfSight(nA.position, nB.position, rooms, [], walls, doors)) {
             if (!nA.neighbors.some((nbr) => nbr.nodeId === nB.id)) {
               nA.neighbors.push({ nodeId: nB.id, weight: d, isAccessible: true });
               nB.neighbors.push({ nodeId: nA.id, weight: d, isAccessible: true });
@@ -322,7 +561,7 @@ export function buildNavGraph(
     }
   }
 
-  // 6. Connect Vertical Transit Shafts across floors (Lifts & Stairs)
+  // 10. Cross-Floor Vertical Connections (Elevators & Stairs)
   const transitGroupMap = new Map<
     string,
     {
@@ -342,45 +581,7 @@ export function buildNavGraph(
       if (!transitGroupMap.has(connector.transitGroupId)) {
         transitGroupMap.set(connector.transitGroupId, []);
       }
-
-      let transitNodeId = connector.navNodeId;
-      if (!graph.has(transitNodeId)) {
-        transitNodeId = `node-transit-${connector.id}`;
-        graph.set(transitNodeId, {
-          id: transitNodeId,
-          floorId: floor.id,
-          floorLevel: floor.level,
-          floorName: floor.name,
-          floorShortCode: floor.shortCode,
-          buildingName: building.name,
-          position: connector.position,
-          type: 'transit',
-          refId: connector.id,
-          label: connector.name,
-          neighbors: [],
-        });
-
-        // Link transit node to closest unobstructed corridor node
-        const clearCorridors = Array.from(graph.values())
-          .filter(
-            (gn) =>
-              gn.floorId === floor.id &&
-              gn.id !== transitNodeId &&
-              gn.type !== 'room' &&
-              gn.type !== 'door' &&
-              hasClearLineOfSight(connector.position, gn.position, floor.rooms)
-          )
-          .map((gn) => ({ node: gn, dist: distance(connector.position, gn.position) }))
-          .sort((a, b) => a.dist - b.dist)
-          .slice(0, 3);
-
-        const tNode = graph.get(transitNodeId)!;
-        for (const { node: cNode, dist } of clearCorridors) {
-          tNode.neighbors.push({ nodeId: cNode.id, weight: dist, isAccessible: connector.isAccessible });
-          cNode.neighbors.push({ nodeId: transitNodeId, weight: dist, isAccessible: connector.isAccessible });
-        }
-      }
-
+      const transitNodeId = connector.navNodeId || `transit-node-${connector.id}`;
       transitGroupMap.get(connector.transitGroupId)!.push({
         connectorId: connector.id,
         floorId: floor.id,
@@ -394,7 +595,6 @@ export function buildNavGraph(
     }
   }
 
-  // Cross-floor vertical connections
   for (const [, connectors] of transitGroupMap.entries()) {
     for (let i = 0; i < connectors.length; i++) {
       for (let j = i + 1; j < connectors.length; j++) {
@@ -410,36 +610,178 @@ export function buildNavGraph(
 
         if (node1 && node2) {
           const levelDiff = Math.abs(c1.floorLevel - c2.floorLevel);
-          let verticalPenalty = levelDiff * 80;
+          let verticalPenalty = levelDiff * 60;
           if (c1.type === 'elevator') {
-            verticalPenalty = preferences.prioritizeElevators ? levelDiff * 35 : levelDiff * 60;
+            if (preferences.prioritizeElevators) {
+              verticalPenalty = levelDiff * 25;
+            } else if (preferences.prioritizeStairs) {
+              verticalPenalty = levelDiff * 190;
+            } else {
+              verticalPenalty = levelDiff * 55;
+            }
           } else if (c1.type === 'stairs') {
-            verticalPenalty = preferences.prioritizeElevators ? levelDiff * 140 : levelDiff * 80;
+            if (preferences.prioritizeElevators) {
+              verticalPenalty = levelDiff * 190;
+            } else if (preferences.prioritizeStairs) {
+              verticalPenalty = levelDiff * 25;
+            } else {
+              verticalPenalty = levelDiff * 50;
+            }
+          } else if (c1.type === 'escalator') {
+            verticalPenalty = levelDiff * 45;
+          } else if (c1.type === 'ramp') {
+            verticalPenalty = levelDiff * 50;
           }
 
-          node1.neighbors.push({
-            nodeId: node2.id,
-            weight: verticalPenalty,
-            isVertical: true,
-            transitType: c1.type,
-            transitName: c1.name,
-            isAccessible: c1.isAccessible && c2.isAccessible,
-          });
+          if (!node1.neighbors.some((n) => n.nodeId === node2.id)) {
+            node1.neighbors.push({
+              nodeId: node2.id,
+              weight: verticalPenalty,
+              isVertical: true,
+              transitType: c1.type,
+              transitName: c1.name,
+              isAccessible: c1.isAccessible && c2.isAccessible,
+            });
+          }
 
-          node2.neighbors.push({
-            nodeId: node1.id,
-            weight: verticalPenalty,
-            isVertical: true,
-            transitType: c2.type,
-            transitName: c2.name,
-            isAccessible: c1.isAccessible && c2.isAccessible,
-          });
+          if (!node2.neighbors.some((n) => n.nodeId === node1.id)) {
+            node2.neighbors.push({
+              nodeId: node1.id,
+              weight: verticalPenalty,
+              isVertical: true,
+              transitType: c2.type,
+              transitName: c2.name,
+              isAccessible: c1.isAccessible && c2.isAccessible,
+            });
+          }
         }
       }
     }
   }
 
   return graph;
+}
+
+/**
+ * String-pulls a raw A* path into a straighter route by skipping over any
+ * intermediate corridor/corner nodes whenever a direct, collision-free line
+ * of sight exists between two waypoints on the same floor.
+ */
+function simplifyRoutePath(
+  pathNodes: { nodeId: string; floorId: string; position: Point; floorLevel: number }[],
+  graph: Map<string, GraphNode>,
+  building: Building
+): { nodeId: string; floorId: string; position: Point; floorLevel: number }[] {
+  if (pathNodes.length <= 2) return pathNodes;
+
+  const floorMap = new Map<string, Floor>();
+  for (const floor of building.floors) {
+    floorMap.set(floor.id, floor);
+  }
+
+  const mandatoryTypes = new Set(['door', 'room', 'transit', 'poi']);
+  const simplified = [pathNodes[0]];
+  let anchorIdx = 0;
+
+  while (anchorIdx < pathNodes.length - 1) {
+    const anchor = pathNodes[anchorIdx];
+    const floor = floorMap.get(anchor.floorId);
+    const rooms = floor?.rooms || [];
+    const walls = floor?.walls || [];
+    const doors = floor?.doors || [];
+    let farthest = anchorIdx + 1;
+
+    for (let candidate = anchorIdx + 2; candidate < pathNodes.length; candidate++) {
+      const node = pathNodes[candidate];
+      if (node.floorId !== anchor.floorId) break;
+
+      let blockedByMandatory = false;
+      for (let k = anchorIdx + 1; k < candidate; k++) {
+        const midNode = graph.get(pathNodes[k].nodeId);
+        if (midNode && mandatoryTypes.has(midNode.type)) {
+          blockedByMandatory = true;
+          break;
+        }
+      }
+      if (blockedByMandatory) break;
+
+      if (hasClearLineOfSight(anchor.position, node.position, rooms, [], walls, doors)) {
+        farthest = candidate;
+      } else {
+        break;
+      }
+    }
+
+    simplified.push(pathNodes[farthest]);
+    anchorIdx = farthest;
+  }
+
+  return simplified;
+}
+
+/**
+ * Inserts a single right-angle elbow between any two consecutive waypoints
+ * that aren't already horizontally/vertically aligned, so the rendered route
+ * only ever bends in clean 90° corners.
+ */
+function enforceOrthogonalTurns(
+  pathNodes: { nodeId: string; floorId: string; position: Point; floorLevel: number }[],
+  graph: Map<string, GraphNode>,
+  building: Building
+): { nodeId: string; floorId: string; position: Point; floorLevel: number }[] {
+  const floorMap = new Map<string, Floor>();
+  for (const floor of building.floors) {
+    floorMap.set(floor.id, floor);
+  }
+
+  const result: typeof pathNodes = [];
+  let elbowCounter = 0;
+
+  for (let i = 0; i < pathNodes.length; i++) {
+    result.push(pathNodes[i]);
+    if (i === pathNodes.length - 1) continue;
+
+    const a = pathNodes[i];
+    const b = pathNodes[i + 1];
+    if (a.floorId !== b.floorId) continue;
+    if (a.position.x === b.position.x || a.position.y === b.position.y) continue;
+
+    const floor = floorMap.get(a.floorId);
+    const rooms = floor?.rooms || [];
+    const walls = floor?.walls || [];
+    const doors = floor?.doors || [];
+
+    const elbowCandidates: Point[] = [
+      { x: b.position.x, y: a.position.y },
+      { x: a.position.x, y: b.position.y },
+    ];
+
+    for (const elbow of elbowCandidates) {
+      if (
+        hasClearLineOfSight(a.position, elbow, rooms, [], walls, doors) &&
+        hasClearLineOfSight(elbow, b.position, rooms, [], walls, doors)
+      ) {
+        const anchorGraphNode = graph.get(a.nodeId);
+        const elbowId = `elbow-${elbowCounter++}-${a.nodeId}-${b.nodeId}`;
+        graph.set(elbowId, {
+          id: elbowId,
+          floorId: a.floorId,
+          floorLevel: a.floorLevel,
+          floorName: anchorGraphNode?.floorName || '',
+          floorShortCode: anchorGraphNode?.floorShortCode || '',
+          buildingName: anchorGraphNode?.buildingName || '',
+          position: elbow,
+          type: 'corner',
+          label: 'Folyosó forduló',
+          neighbors: [],
+        });
+        result.push({ nodeId: elbowId, floorId: a.floorId, position: elbow, floorLevel: a.floorLevel });
+        break;
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -453,23 +795,58 @@ export function findMultiFloorPath(
 ): RouteResult | null {
   const graph = buildNavGraph(building, preferences);
 
-  // Resolve start and target node IDs
-  let startNodeId = startIdentifier;
-  if (!graph.has(startNodeId)) {
-    if (graph.has(`room-node-${startIdentifier}`)) {
-      startNodeId = `room-node-${startIdentifier}`;
+  // Helper to resolve start / target node IDs (routes to room doorway, zone center, POI, or transit)
+  const resolveNodeId = (identifier: string): string | null => {
+    // 1. Zones: always route directly to the zone center
+    if (graph.has(`zone-node-${identifier}`)) return `zone-node-${identifier}`;
+    const directNode = graph.get(identifier);
+    if (directNode && directNode.id.startsWith('zone-node-')) {
+      return directNode.id;
     }
-  }
 
-  let targetNodeId = targetIdentifier;
-  if (!graph.has(targetNodeId)) {
-    if (graph.has(`room-node-${targetIdentifier}`)) {
-      targetNodeId = `room-node-${targetIdentifier}`;
+    // 2. Rooms: route directly to the room's doorway / door on the wall
+    if (identifier.startsWith('room-node-')) {
+      const rmId = identifier.replace(/^room-node-/, '');
+      if (graph.has(`door-room-${rmId}`)) return `door-room-${rmId}`;
     }
-  }
+    if (graph.has(`door-room-${identifier}`)) return `door-room-${identifier}`;
 
-  const startNode = graph.get(startNodeId);
-  const targetNode = graph.get(targetNodeId);
+    // 3. Direct IDs: POIs, Transits, Doors, explicit NavNodes
+    if (graph.has(identifier)) return identifier;
+    if (graph.has(`poi-node-${identifier}`)) return `poi-node-${identifier}`;
+    if (graph.has(`transit-node-${identifier}`)) return `transit-node-${identifier}`;
+    if (graph.has(`door-mid-${identifier}`)) return `door-mid-${identifier}`;
+
+    // 4. Search by refId (prefer door node for rooms)
+    for (const node of graph.values()) {
+      if (node.refId === identifier && node.type === 'door') {
+        return node.id;
+      }
+    }
+    for (const node of graph.values()) {
+      if (node.refId === identifier) {
+        return node.id;
+      }
+    }
+    if (graph.has(`room-node-${identifier}`)) return `room-node-${identifier}`;
+    return null;
+  };
+
+  const resolvedStartKey = resolveNodeId(startIdentifier);
+  const resolvedTargetKey = resolveNodeId(targetIdentifier);
+
+  if (!resolvedStartKey || !resolvedTargetKey) return null;
+
+  const startNode = graph.get(resolvedStartKey);
+  const targetNode = graph.get(resolvedTargetKey);
+
+  if (!startNode || !targetNode) return null;
+
+  const startNodeId = startNode.id;
+  const targetNodeId = targetNode.id;
+
+  const friendlyEndpointLabel = (node: GraphNode): string =>
+    (node.label || (node.type === 'door' ? 'Ajtó' : 'Célállomás')).replace(/^Ajtó: /, '');
 
   if (!startNode || !targetNode) return null;
   if (startNodeId === targetNodeId) {
@@ -486,7 +863,7 @@ export function findMultiFloorPath(
         {
           stepIndex: 1,
           instruction: 'Ön már a kiválasztott célállomáson tartózkodik.',
-          detail: `${targetNode.label || 'Célállomás'}`,
+          detail: friendlyEndpointLabel(targetNode),
           floorId: targetNode.floorId,
           floorName: targetNode.floorName,
           floorShortCode: targetNode.floorShortCode,
@@ -559,7 +936,7 @@ export function findMultiFloorPath(
   }
 
   if (!previous.has(targetNodeId) && startNodeId !== targetNodeId) {
-    return null; // Path unreachable
+    return null;
   }
 
   // Reconstruct path nodes
@@ -570,7 +947,7 @@ export function findMultiFloorPath(
     curr = previous.get(curr);
   }
 
-  const pathNodes = pathNodeIds.map((id) => {
+  const rawPathNodes = pathNodeIds.map((id) => {
     const n = graph.get(id)!;
     return {
       nodeId: n.id,
@@ -580,7 +957,10 @@ export function findMultiFloorPath(
     };
   });
 
-  // Generate Door-Aware Turn-by-Turn Navigation Instructions
+  const straightenedPathNodes = simplifyRoutePath(rawPathNodes, graph, building);
+  const pathNodes = enforceOrthogonalTurns(straightenedPathNodes, graph, building);
+
+  // Generate Turn-by-Turn Navigation Instructions
   const steps: RouteStep[] = [];
   let totalDistanceUnits = 0;
   const floorsTraversedSet = new Set<string>();
@@ -595,7 +975,7 @@ export function findMultiFloorPath(
     if (i === 0) {
       steps.push({
         stepIndex: 1,
-        instruction: `Indulás: ${currGraph.label || 'Kiindulási helyiség'}`,
+        instruction: `Indulás: ${friendlyEndpointLabel(currGraph)}`,
         detail: `Kezdőpont: ${currGraph.floorName}`,
         floorId: currGraph.floorId,
         floorName: currGraph.floorName,
@@ -623,9 +1003,20 @@ export function findMultiFloorPath(
         allStepsAccessible = false;
       }
 
+      let instruction = '';
+      if (transitType === 'elevator') {
+        instruction = `Menjen a lifttel (${transitName}) ${isUp ? 'FEL' : 'LE'} a(z) ${currGraph.floorName} szintre`;
+      } else if (transitType === 'stairs') {
+        instruction = `Menjen a lépcsőn (${transitName}) ${isUp ? 'FEL' : 'LE'} a(z) ${currGraph.floorName} szintre`;
+      } else if (transitType === 'escalator') {
+        instruction = `Használja a mozgólépcsőt (${transitName}) ${isUp ? 'FEL' : 'LE'} a(z) ${currGraph.floorName} szintre`;
+      } else {
+        instruction = `Közlekedjen a rámpán (${transitName}) ${isUp ? 'FEL' : 'LE'} a(z) ${currGraph.floorName} szintre`;
+      }
+
       steps.push({
         stepIndex: steps.length + 1,
-        instruction: `Menjen a(z) ${transitName} segítségével ${isUp ? 'FEL' : 'LE'} a(z) ${currGraph.floorName} szintre`,
+        instruction,
         detail: `${prevGraph.floorShortCode}. szint ➔ ${currGraph.floorShortCode}. szint`,
         floorId: currGraph.floorId,
         floorName: currGraph.floorName,
@@ -688,7 +1079,7 @@ export function findMultiFloorPath(
     if (i === pathNodes.length - 1) {
       steps.push({
         stepIndex: steps.length + 1,
-        instruction: `Megérkezett: ${currGraph.label || 'Célállomás'}`,
+        instruction: `Megérkezett: ${friendlyEndpointLabel(currGraph)}`,
         detail: `${currGraph.floorName} • ${currGraph.buildingName}`,
         floorId: currGraph.floorId,
         floorName: currGraph.floorName,
@@ -828,27 +1219,80 @@ export function findMultiStopPath(
 }
 
 /**
- * Finds the closest POI of a given type to a specific room
+ * Optimizes the sequence of intermediate waypoints to minimize total walking distance.
+ */
+export function optimizeStopOrder(
+  building: Building,
+  startId: string,
+  stopIds: string[],
+  targetId: string,
+  preferences: RoutePreference
+): string[] {
+  if (stopIds.length <= 1) return stopIds;
+
+  const permute = (arr: string[]): string[][] => {
+    if (arr.length <= 1) return [arr];
+    const result: string[][] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const curr = arr[i];
+      const rest = arr.slice(0, i).concat(arr.slice(i + 1));
+      const subPerms = permute(rest);
+      for (const p of subPerms) {
+        result.push([curr, ...p]);
+      }
+    }
+    return result;
+  };
+
+  const allPerms = permute(stopIds);
+  let bestPerm = stopIds;
+  let minDistance = Infinity;
+
+  for (const perm of allPerms) {
+    const fullRoute = [startId, ...perm, targetId];
+    const res = findMultiStopPath(building, fullRoute, preferences);
+    if (res && res.totalDistanceMeters < minDistance) {
+      minDistance = res.totalDistanceMeters;
+      bestPerm = perm;
+    }
+  }
+
+  return bestPerm;
+}
+
+/**
+ * Finds the closest POI of a given type to a specific location (room, POI, transit)
  */
 export function findNearestPOIToRoom(
   building: Building,
-  fromRoomId: string,
+  fromId: string,
   poiType: string
 ): { poi: PointOfInterest; floor: Floor } | null {
-  let fromRoom: Room | undefined;
-  let fromFloor: Floor | undefined;
+  let fromPosition: Point | null = null;
+  let fromFloor: Floor | null = null;
 
   for (const floor of building.floors) {
-    const r = floor.rooms.find((rm) => rm.id === fromRoomId);
+    const r = floor.rooms.find((rm) => rm.id === fromId || rm.id === `room-node-${fromId}`);
     if (r) {
-      fromRoom = r;
+      fromPosition = polygonCentroid(r.polygon);
+      fromFloor = floor;
+      break;
+    }
+    const p = floor.pois.find((poi) => poi.id === fromId || poi.id === `poi-node-${fromId}`);
+    if (p) {
+      fromPosition = p.position;
+      fromFloor = floor;
+      break;
+    }
+    const t = floor.transitConnectors.find((tc) => tc.id === fromId || tc.id === `transit-node-${fromId}`);
+    if (t) {
+      fromPosition = t.position;
       fromFloor = floor;
       break;
     }
   }
 
-  if (!fromRoom || !fromFloor) return null;
-  const roomCenter = polygonCentroid(fromRoom.polygon);
+  if (!fromPosition || !fromFloor) return null;
 
   let nearestPOI: PointOfInterest | null = null;
   let nearestFloor: Floor | null = null;
@@ -856,9 +1300,19 @@ export function findNearestPOIToRoom(
 
   for (const floor of building.floors) {
     for (const poi of floor.pois) {
-      if (poi.type.includes(poiType) || (poiType === 'restroom' && poi.type.startsWith('restroom'))) {
-        const floorDistPenalty = Math.abs(floor.level - fromFloor.level) * 400;
-        const d = distance(roomCenter, poi.position) + floorDistPenalty;
+      const matchesType =
+        poi.type.includes(poiType) ||
+        (poiType === 'entrance' && (poi.type === 'entrance' || poi.type === 'accessible_entrance')) ||
+        (poiType === 'exit' && (poi.type === 'exit' || poi.type === 'fire_exit')) ||
+        (poiType === 'fire_exit' && poi.type === 'fire_exit') ||
+        (poiType === 'restroom' && poi.type.startsWith('restroom')) ||
+        (poiType === 'coffee' && (poi.type === 'coffee' || poi.type === 'vending')) ||
+        (poiType === 'aed' && (poi.type === 'aed' || poi.type === 'first_aid')) ||
+        (poiType === 'water' && poi.type === 'water');
+
+      if (matchesType) {
+        const floorDistPenalty = Math.abs(floor.level - fromFloor.level) * 350;
+        const d = distance(fromPosition, poi.position) + floorDistPenalty;
         if (d < minDistance) {
           minDistance = d;
           nearestPOI = poi;
@@ -871,3 +1325,87 @@ export function findNearestPOIToRoom(
   if (!nearestPOI || !nearestFloor) return null;
   return { poi: nearestPOI, floor: nearestFloor };
 }
+
+/**
+ * Finds the nearest elevator or stairs shaft on a given floor from a point.
+ */
+export function findNearestTransitToLocation(
+  building: Building,
+  floorId: string,
+  position: Point,
+  transitType?: TransitType
+): TransitConnector | null {
+  const floor = building.floors.find((f) => f.id === floorId);
+  if (!floor || floor.transitConnectors.length === 0) return null;
+
+  let best: TransitConnector | null = null;
+  let minDist = Infinity;
+
+  for (const t of floor.transitConnectors) {
+    if (transitType && t.type !== transitType) continue;
+    const d = distance(position, t.position);
+    if (d < minDist) {
+      minDist = d;
+      best = t;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Finds the nearest elevator or stairs shaft to a room/POI/transit from any point in the building.
+ */
+export function findNearestTransitToRoom(
+  building: Building,
+  fromId: string,
+  transitType?: TransitType
+): { transit: TransitConnector; floor: Floor } | null {
+  let fromPosition: Point | null = null;
+  let fromFloor: Floor | null = null;
+
+  for (const floor of building.floors) {
+    const r = floor.rooms.find((rm) => rm.id === fromId || rm.id === `room-node-${fromId}`);
+    if (r) {
+      fromPosition = polygonCentroid(r.polygon);
+      fromFloor = floor;
+      break;
+    }
+    const p = floor.pois.find((poi) => poi.id === fromId || poi.id === `poi-node-${fromId}`);
+    if (p) {
+      fromPosition = p.position;
+      fromFloor = floor;
+      break;
+    }
+    const t = floor.transitConnectors.find((tc) => tc.id === fromId || tc.id === `transit-node-${fromId}`);
+    if (t) {
+      fromPosition = t.position;
+      fromFloor = floor;
+      break;
+    }
+  }
+
+  if (!fromPosition || !fromFloor) return null;
+
+  let nearestTransit: TransitConnector | null = null;
+  let nearestFloor: Floor | null = null;
+  let minDistance = Infinity;
+
+  for (const floor of building.floors) {
+    for (const transit of floor.transitConnectors) {
+      if (transitType && transit.type !== transitType) continue;
+      const floorDistPenalty = Math.abs(floor.level - fromFloor.level) * 350;
+      const d = distance(fromPosition, transit.position) + floorDistPenalty;
+      if (d < minDistance) {
+        minDistance = d;
+        nearestTransit = transit;
+        nearestFloor = floor;
+      }
+    }
+  }
+
+  if (!nearestTransit || !nearestFloor) return null;
+  return { transit: nearestTransit, floor: nearestFloor };
+}
+
+

@@ -131,7 +131,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm font-black tracking-wider text-[#1A3C2B]">
-                ARCHIPATH
+                POLLAKFIND
               </span>
               <span className="font-mono text-[9px] px-1.5 py-0.2 bg-[#1A3C2B] text-white font-bold tracking-widest uppercase">
                 CAD // V4

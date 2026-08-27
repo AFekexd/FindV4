@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type {
   Institution,
   Building,
   Floor,
   Room,
+  Zone,
   TransitConnector,
   PointOfInterest,
   EditorTool,
@@ -11,6 +12,7 @@ import type {
   RouteResult,
   RoutePreference,
   RouteStep,
+  Point,
 } from './types';
 import {
   loadInstitutions,
@@ -22,7 +24,9 @@ import {
 import {
   findMultiFloorPath,
   findMultiStopPath,
+  optimizeStopOrder,
   findNearestPOIToRoom,
+  findNearestTransitToRoom,
 } from './utils/pathfinding';
 import { useAuth } from './auth/AuthContext';
 import { Header } from './components/common/Header';
@@ -38,12 +42,20 @@ import { UnderlayManagerModal } from './components/editor/UnderlayManagerModal';
 import { AuthRequiredModal } from './components/auth/AuthRequiredModal';
 import { EditorToolbar } from './components/editor/EditorToolbar';
 import { RoomInspector } from './components/editor/RoomInspector';
+import { ZoneInspector } from './components/editor/ZoneInspector';
 import { TransitInspector } from './components/editor/TransitInspector';
+import { POIInspector } from './components/editor/POIInspector';
 import { FloorManagerModal } from './components/editor/FloorManagerModal';
 import { CampusDirectoryModal } from './components/directory/CampusDirectoryModal';
 import { FloorStackSelector } from './components/common/FloorStackSelector';
 import { KioskOverlay } from './components/common/KioskOverlay';
-import { distance } from './utils/geometry';
+import {
+  distance,
+  polygonCentroid,
+  pointInPolygon,
+  pointToSegmentDistance,
+  hasClearLineOfSight,
+} from './utils/geometry';
 import {
   fetchInstitutionsFromCloud,
   saveInstitutionsToCloud,
@@ -141,10 +153,13 @@ export function App() {
     }
     return [];
   });
+  const [activeRouteStep, setActiveRouteStep] = useState<RouteStep | null>(null);
 
   // 4. Undo / Redo History Stack for CAD Studio
   const [undoStack, setUndoStack] = useState<Floor[]>([]);
   const [redoStack, setRedoStack] = useState<Floor[]>([]);
+  const [copiedRoom, setCopiedRoom] = useState<Room | null>(null);
+  const [copiedZone, setCopiedZone] = useState<Zone | null>(null);
 
   // Supabase Cloud Sync State
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
@@ -173,21 +188,28 @@ export function App() {
     };
   }, []);
 
-  // Save changes to localStorage & push to Supabase Cloud
-  const handleUpdateInstitutions = (updated: Institution[]) => {
+  const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Save changes to localStorage & debounced push to Supabase Cloud
+  const handleUpdateInstitutions = useCallback((updated: Institution[]) => {
     setInstitutions(updated);
     saveInstitutions(updated);
     setSyncStatus('syncing');
 
-    // Async push to Supabase Cloud
-    saveInstitutionsToCloud(updated).then((res) => {
-      if (res.success) {
-        setSyncStatus('synced');
-      } else {
-        setSyncStatus('error');
-      }
-    });
-  };
+    if (cloudSyncTimerRef.current) {
+      clearTimeout(cloudSyncTimerRef.current);
+    }
+
+    cloudSyncTimerRef.current = setTimeout(() => {
+      saveInstitutionsToCloud(updated).then((res) => {
+        if (res.success) {
+          setSyncStatus('synced');
+        } else {
+          setSyncStatus('error');
+        }
+      });
+    }, 1000);
+  }, []);
 
   // 5. Application UI Modes & Tools
   const [appMode, setAppMode] = useState<AppMode>(() => {
@@ -201,8 +223,10 @@ export function App() {
 
   // Selected Entities
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
+  const [selectedZone, setSelectedZone] = useState<Zone | null>(null);
   const [selectedTransit, setSelectedTransit] = useState<TransitConnector | null>(null);
   const [selectedPOI, setSelectedPOI] = useState<PointOfInterest | null>(null);
+  const [isAllElementsSelected, setIsAllElementsSelected] = useState<boolean>(false);
 
   const [routePreferences, setRoutePreferences] = useState<RoutePreference>({
     accessibilityOnly: false,
@@ -261,37 +285,120 @@ export function App() {
     setSelectedRoom(null);
   };
 
-  // Helper to find nav node ID or room ID for route planning
-  const getNavNodeIdForRoom = useCallback((roomId: string, bld: Building): string | null => {
+  // Helper to find nav node ID, room doorway ID, zone ID, POI ID, or Transit ID for route planning
+  const getNodeIdForEntity = useCallback((entityId: string, bld: Building): string => {
     for (const fl of bld.floors) {
-      const rm = fl.rooms.find((r) => r.id === roomId);
-      if (rm) {
-        return `room-node-${rm.id}`;
-      }
+      const z = (fl.zones || []).find((zone) => zone.id === entityId);
+      if (z) return `zone-node-${z.id}`;
+      const rm = fl.rooms.find((r) => r.id === entityId);
+      if (rm) return `door-room-${rm.id}`;
+      const p = fl.pois.find((poi) => poi.id === entityId);
+      if (p) return `poi-node-${p.id}`;
+      const t = fl.transitConnectors.find((tc) => tc.id === entityId);
+      if (t) return `transit-node-${t.id}`;
+      const d = (fl.doors || []).find((door) => door.id === entityId);
+      if (d) return `door-mid-${d.id}`;
     }
-    return roomId;
+    return entityId;
   }, []);
 
-  // Compute multi-stop route with full doorway routing
+  // Compute multi-stop route with full doorway and POI routing
   const routeResult = useMemo<RouteResult | null>(() => {
     if (!activeBuilding) return null;
     const stops = [startRoomId, ...intermediateStopIds, targetRoomId].filter(Boolean) as string[];
     if (stops.length < 2) return null;
 
     const stopNodeIds = stops
-      .map((rmId) => getNavNodeIdForRoom(rmId, activeBuilding))
-      .filter(Boolean) as string[];
+      .map((rmId) => getNodeIdForEntity(rmId, activeBuilding))
+      .filter(Boolean);
 
     if (stopNodeIds.length < 2) return null;
 
     return findMultiStopPath(activeBuilding, stopNodeIds, routePreferences);
-  }, [activeBuilding, startRoomId, intermediateStopIds, targetRoomId, routePreferences, getNavNodeIdForRoom]);
+  }, [activeBuilding, startRoomId, intermediateStopIds, targetRoomId, routePreferences, getNodeIdForEntity]);
+
+  // Handler to optimize intermediate stops (Traveling Salesperson Problem)
+  const handleOptimizeStops = useCallback(() => {
+    if (!startRoomId || !targetRoomId || intermediateStopIds.length <= 1 || !activeBuilding) return;
+    const startNode = getNodeIdForEntity(startRoomId, activeBuilding);
+    const stopNodes = intermediateStopIds.map((id) => getNodeIdForEntity(id, activeBuilding));
+    const targetNode = getNodeIdForEntity(targetRoomId, activeBuilding);
+
+    const optStopNodes = optimizeStopOrder(
+      activeBuilding,
+      startNode,
+      stopNodes,
+      targetNode,
+      routePreferences
+    );
+
+    const nodeToEntityMap = new Map<string, string>();
+    for (const id of intermediateStopIds) {
+      nodeToEntityMap.set(getNodeIdForEntity(id, activeBuilding), id);
+      nodeToEntityMap.set(id, id);
+    }
+
+    const reorderedStops = optStopNodes.map((n) => nodeToEntityMap.get(n) || n);
+    setIntermediateStopIds(reorderedStops);
+  }, [startRoomId, targetRoomId, intermediateStopIds, activeBuilding, routePreferences, getNodeIdForEntity]);
+
+  // Handler to inject closest POI (Restroom, Coffee, AED, Water)
+  const handleInjectNearestPOI = useCallback((poiType: string) => {
+    if (!activeBuilding) return;
+    const fromId = intermediateStopIds.length > 0
+      ? intermediateStopIds[intermediateStopIds.length - 1]
+      : startRoomId || activeFloor?.rooms[0]?.id;
+
+    if (!fromId) return;
+
+    const res = findNearestPOIToRoom(activeBuilding, fromId, poiType);
+    if (!res) return;
+
+    if (!startRoomId) {
+      setStartRoomId(res.poi.id);
+      setActiveFloorId(res.floor.id);
+    } else if (!targetRoomId) {
+      setTargetRoomId(res.poi.id);
+    } else {
+      setIntermediateStopIds((prev) => [...prev, res.poi.id]);
+    }
+  }, [intermediateStopIds, startRoomId, targetRoomId, activeBuilding, activeFloor]);
+
+  // Handler to inject closest Transit connector (Stairs or Elevator)
+  const handleInjectNearestTransit = useCallback((transitType: 'stairs' | 'elevator') => {
+    if (!activeBuilding) return;
+    const fromId = intermediateStopIds.length > 0
+      ? intermediateStopIds[intermediateStopIds.length - 1]
+      : startRoomId || activeFloor?.rooms[0]?.id;
+
+    if (!fromId) return;
+
+    const res = findNearestTransitToRoom(activeBuilding, fromId, transitType);
+    if (!res) return;
+
+    if (!startRoomId) {
+      setStartRoomId(res.transit.id);
+      setActiveFloorId(res.floor.id);
+    } else if (!targetRoomId) {
+      setTargetRoomId(res.transit.id);
+    } else {
+      setIntermediateStopIds((prev) => [...prev, res.transit.id]);
+    }
+  }, [intermediateStopIds, startRoomId, targetRoomId, activeBuilding, activeFloor]);
+
+  const handleAddIntermediateStop = useCallback((id: string) => {
+    setIntermediateStopIds((prev) => [...prev, id]);
+  }, []);
 
   // Auto-switch floor when selecting start or destination
   useEffect(() => {
     if (targetRoomId && activeBuilding) {
       for (const fl of activeBuilding.floors) {
-        if (fl.rooms.some((r) => r.id === targetRoomId)) {
+        if (
+          fl.rooms.some((r) => r.id === targetRoomId) ||
+          fl.pois.some((p) => p.id === targetRoomId) ||
+          fl.transitConnectors.some((t) => t.id === targetRoomId)
+        ) {
           if (!startRoomId) {
             setActiveFloorId(fl.id);
           }
@@ -430,9 +537,108 @@ export function App() {
     handleUpdateInstitutions(updatedInstitutions);
   };
 
-  // Keyboard shortcut listener (Ctrl+Z, Ctrl+Y, Escape, etc.)
+  // Duplicate Room Handler
+  const handleDuplicateRoom = (roomToDuplicate: Room) => {
+    if (!activeFloor) return;
+
+    if (!isEditorAllowed) {
+      handleRequireAuth('Helyiség másolása');
+      return;
+    }
+
+    const offset = { x: 30, y: 30 };
+    const newPolygon = roomToDuplicate.polygon.map((p) => ({
+      x: p.x + offset.x,
+      y: p.y + offset.y,
+    }));
+    const newDoorLocation = roomToDuplicate.doorLocation
+      ? {
+          x: roomToDuplicate.doorLocation.x + offset.x,
+          y: roomToDuplicate.doorLocation.y + offset.y,
+        }
+      : undefined;
+
+    const timestamp = Date.now();
+    const newRoomId = `room-${timestamp}`;
+    const newNavNodeId = `node-room-${timestamp}`;
+
+    // Auto-increment code if possible (e.g. I-101 -> I-102)
+    const codeMatch = roomToDuplicate.code.match(/^(.+?)(\d+)$/);
+    let nextCode = `${roomToDuplicate.code} (Másolat)`;
+    if (codeMatch) {
+      const prefix = codeMatch[1];
+      const numStr = codeMatch[2];
+      const nextNum = parseInt(numStr, 10) + 1;
+      const candidateCode = `${prefix}${String(nextNum).padStart(numStr.length, '0')}`;
+      const codeExists = activeFloor.rooms.some((r) => r.code === candidateCode);
+      if (!codeExists) {
+        nextCode = candidateCode;
+      }
+    }
+
+    const duplicatedRoom: Room = {
+      ...roomToDuplicate,
+      id: newRoomId,
+      code: nextCode,
+      name: `${roomToDuplicate.name} (Másolat)`,
+      polygon: newPolygon,
+      doorLocation: newDoorLocation,
+      navNodeId: newNavNodeId,
+    };
+
+    handleUpdateFloor({
+      ...activeFloor,
+      rooms: [...activeFloor.rooms, duplicatedRoom],
+    });
+    setSelectedRoom(duplicatedRoom);
+    setSelectedZone(null);
+    setSelectedTransit(null);
+    setSelectedPOI(null);
+  };
+
+  // Duplicate Zone Handler
+  const handleDuplicateZone = (zoneToDuplicate: Zone) => {
+    if (!activeFloor) return;
+
+    if (!isEditorAllowed) {
+      handleRequireAuth('Zóna duplikálása');
+      return;
+    }
+
+    const offset = { x: 30, y: 30 };
+    const newPolygon = zoneToDuplicate.polygon.map((p) => ({
+      x: p.x + offset.x,
+      y: p.y + offset.y,
+    }));
+
+    const timestamp = Date.now();
+    const newZoneId = `zone-${timestamp}`;
+    const zoneCount = (activeFloor.zones || []).length + 1;
+
+    const duplicatedZone: Zone = {
+      ...zoneToDuplicate,
+      id: newZoneId,
+      code: `Z-${String(zoneCount).padStart(2, '0')}`,
+      name: `${zoneToDuplicate.name} (Másolat)`,
+      polygon: newPolygon,
+    };
+
+    handleUpdateFloor({
+      ...activeFloor,
+      zones: [...(activeFloor.zones || []), duplicatedZone],
+    });
+    setSelectedZone(duplicatedZone);
+    setSelectedRoom(null);
+    setSelectedTransit(null);
+    setSelectedPOI(null);
+  };
+
+  // Keyboard shortcut listener (Ctrl+Z, Ctrl+Y, Ctrl+D, Ctrl+C, Ctrl+V, etc.)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
         if (e.shiftKey) {
           e.preventDefault();
@@ -447,32 +653,41 @@ export function App() {
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         setIsDirectoryOpen((prev) => !prev);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+        if (selectedRoom && appMode === 'studio' && !isInput) {
+          e.preventDefault();
+          handleDuplicateRoom(selectedRoom);
+        } else if (selectedZone && appMode === 'studio' && !isInput) {
+          e.preventDefault();
+          handleDuplicateZone(selectedZone);
+        }
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
+        if (selectedRoom && appMode === 'studio' && !isInput) {
+          e.preventDefault();
+          setCopiedRoom(selectedRoom);
+          setCopiedZone(null);
+        } else if (selectedZone && appMode === 'studio' && !isInput) {
+          e.preventDefault();
+          setCopiedZone(selectedZone);
+          setCopiedRoom(null);
+        }
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        if (appMode === 'studio' && !isInput) {
+          e.preventDefault();
+          setIsAllElementsSelected(true);
+          setSelectedRoom(null);
+          setSelectedZone(null);
+          setSelectedTransit(null);
+          setSelectedPOI(null);
+        }
+      } else if (e.key === 'Escape') {
+        setIsAllElementsSelected(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undoStack, redoStack, activeFloor, activeInstitution, activeBuilding]);
+  }, [undoStack, redoStack, activeFloor, activeInstitution, activeBuilding, selectedRoom, selectedZone, copiedRoom, copiedZone, appMode, isEditorAllowed]);
 
-  // Inject nearest POI as intermediate stop
-  const handleInjectNearestPOI = (poiType: string) => {
-    if (!startRoomId || !activeBuilding) {
-      alert('Kérjük, először válasszon ki egy indulási pontot a közeli szolgáltatások kereséséhez!');
-      return;
-    }
-    const match = findNearestPOIToRoom(activeBuilding, startRoomId, poiType);
-    if (match) {
-      const associatedRoom =
-        match.floor.rooms.find(
-          (r) => distance(r.doorLocation || r.polygon[0], match.poi.position) < 100
-        ) || match.floor.rooms[0];
-
-      if (associatedRoom && !intermediateStopIds.includes(associatedRoom.id)) {
-        setIntermediateStopIds((prev) => [...prev, associatedRoom.id]);
-      }
-    } else {
-      alert('Nem található ilyen típusú szolgáltatás az épületben.');
-    }
-  };
 
   // Smart NavMesh Generator for current floor
   const handleAutoGenerateNavMesh = () => {
@@ -483,119 +698,136 @@ export function App() {
       return;
     }
 
+    const rooms = activeFloor.rooms || [];
+    const walls = activeFloor.walls || [];
+    const doors = activeFloor.doors || [];
+    const transits = activeFloor.transitConnectors || [];
+    const pois = activeFloor.pois || [];
+
     const newNodes: Floor['navNodes'] = [];
     const newEdges: Floor['navEdges'] = [];
 
-    const spineY = Math.round(activeFloor.height / 2);
-    const spineNode1 = {
-      id: `gen-spine-1-${Date.now()}`,
-      floorId: activeFloor.id,
-      position: { x: 250, y: spineY },
-      type: 'hub' as const,
-      label: 'Főfolyosó Nyugat',
-    };
-    const spineNode2 = {
-      id: `gen-spine-2-${Date.now()}`,
-      floorId: activeFloor.id,
-      position: { x: 500, y: spineY },
-      type: 'hub' as const,
-      label: 'Központi Aula Csomópont',
-    };
-    const spineNode3 = {
-      id: `gen-spine-3-${Date.now()}`,
-      floorId: activeFloor.id,
-      position: { x: 750, y: spineY },
-      type: 'hub' as const,
-      label: 'Főfolyosó Kelet',
-    };
-
-    newNodes.push(spineNode1, spineNode2, spineNode3);
-
-    newEdges.push(
-      {
-        id: `e-spine-1-2`,
-        fromNodeId: spineNode1.id,
-        toNodeId: spineNode2.id,
-        floorId: activeFloor.id,
-        distance: distance(spineNode1.position, spineNode2.position),
-        isAccessible: true,
-      },
-      {
-        id: `e-spine-2-3`,
-        fromNodeId: spineNode2.id,
-        toNodeId: spineNode3.id,
-        floorId: activeFloor.id,
-        distance: distance(spineNode2.position, spineNode3.position),
-        isAccessible: true,
-      }
-    );
-
-    activeFloor.rooms.forEach((room, idx) => {
-      const doorPt = room.doorLocation || {
-        x: Math.round((room.polygon[0].x + room.polygon[1].x) / 2),
-        y: room.polygon[0].y,
+    // 1. Synthesize Door Nodes
+    doors.forEach((door) => {
+      const dMid: Point = {
+        x: Math.round((door.start.x + door.end.x) / 2),
+        y: Math.round((door.start.y + door.end.y) / 2),
       };
+      newNodes.push({
+        id: `node-door-${door.id}`,
+        floorId: activeFloor.id,
+        position: dMid,
+        type: 'door',
+        refId: door.id,
+        label: 'Ajtó átjáró',
+      });
+    });
 
-      const roomNode = {
-        id: room.navNodeId || `node-room-${room.id}`,
+    // 2. Room Doorway Nodes
+    rooms.forEach((room) => {
+      let doorPt = room.doorLocation;
+      if (!doorPt && room.polygon.length >= 2) {
+        doorPt = {
+          x: Math.round((room.polygon[0].x + room.polygon[1].x) / 2),
+          y: Math.round((room.polygon[0].y + room.polygon[1].y) / 2),
+        };
+      }
+      if (!doorPt) {
+        doorPt = polygonCentroid(room.polygon);
+      }
+
+      const roomNodeId = room.navNodeId || `node-room-${room.id}`;
+      newNodes.push({
+        id: roomNodeId,
         floorId: activeFloor.id,
         position: doorPt,
-        type: 'door' as const,
+        type: 'door',
         refId: room.id,
         label: `${room.code} Bejárat`,
-      };
-      newNodes.push(roomNode);
-
-      let closestSpine = spineNode1;
-      let minD = distance(doorPt, spineNode1.position);
-      if (distance(doorPt, spineNode2.position) < minD) {
-        closestSpine = spineNode2;
-        minD = distance(doorPt, spineNode2.position);
-      }
-      if (distance(doorPt, spineNode3.position) < minD) {
-        closestSpine = spineNode3;
-      }
-
-      newEdges.push({
-        id: `e-room-${room.id}-spine`,
-        fromNodeId: roomNode.id,
-        toNodeId: closestSpine.id,
-        floorId: activeFloor.id,
-        distance: distance(roomNode.position, closestSpine.position),
-        isAccessible: true,
       });
     });
 
-    activeFloor.transitConnectors.forEach((transit) => {
-      const transitNode = {
+    // 3. Transit Nodes
+    transits.forEach((transit) => {
+      newNodes.push({
         id: transit.navNodeId || `node-transit-${transit.id}`,
         floorId: activeFloor.id,
-        position: transit.position,
-        type: 'transit' as const,
+        position: { ...transit.position },
+        type: 'transit',
         refId: transit.id,
-        label: `${transit.name}`,
-      };
-      newNodes.push(transitNode);
-
-      let closestSpine = spineNode1;
-      let minD = distance(transit.position, spineNode1.position);
-      if (distance(transit.position, spineNode2.position) < minD) {
-        closestSpine = spineNode2;
-        minD = distance(transit.position, spineNode2.position);
-      }
-      if (distance(transit.position, spineNode3.position) < minD) {
-        closestSpine = spineNode3;
-      }
-
-      newEdges.push({
-        id: `e-transit-${transit.id}-spine`,
-        fromNodeId: transitNode.id,
-        toNodeId: closestSpine.id,
-        floorId: activeFloor.id,
-        distance: distance(transitNode.position, closestSpine.position),
-        isAccessible: transit.isAccessible,
+        label: transit.name,
       });
     });
+
+    // 4. POI Nodes
+    pois.forEach((poi) => {
+      newNodes.push({
+        id: poi.navNodeId || `node-poi-${poi.id}`,
+        floorId: activeFloor.id,
+        position: { ...poi.position },
+        type: 'poi',
+        refId: poi.id,
+        label: poi.name,
+      });
+    });
+
+    // 5. Open Space Corridor Hubs
+    const stepX = 140;
+    const stepY = 140;
+    for (let x = 100; x < activeFloor.width - 50; x += stepX) {
+      for (let y = 100; y < activeFloor.height - 50; y += stepY) {
+        const pt = { x, y };
+        let isInsideRoom = false;
+        for (const rm of rooms) {
+          if (pointInPolygon(pt, rm.polygon)) {
+            isInsideRoom = true;
+            break;
+          }
+        }
+        if (isInsideRoom) continue;
+
+        let isNearWall = false;
+        for (const w of walls) {
+          if (pointToSegmentDistance(pt, w.start, w.end) < 22) {
+            isNearWall = true;
+            break;
+          }
+        }
+        if (isNearWall) continue;
+
+        newNodes.push({
+          id: `node-corridor-${x}-${y}`,
+          floorId: activeFloor.id,
+          position: pt,
+          type: 'hub',
+          label: 'Folyosói Csomópont',
+        });
+      }
+    }
+
+    // 6. Connect Nodes with Clear Line of Sight
+    let edgeCounter = 1;
+    for (let i = 0; i < newNodes.length; i++) {
+      const nA = newNodes[i];
+      for (let j = i + 1; j < newNodes.length; j++) {
+        const nB = newNodes[j];
+        const d = distance(nA.position, nB.position);
+        const maxDist = nA.type === 'door' || nB.type === 'door' || nA.type === 'transit' || nB.type === 'transit' ? 320 : 220;
+
+        if (d <= maxDist) {
+          if (hasClearLineOfSight(nA.position, nB.position, rooms, [], walls, doors)) {
+            newEdges.push({
+              id: `edge-auto-${edgeCounter++}`,
+              fromNodeId: nA.id,
+              toNodeId: nB.id,
+              floorId: activeFloor.id,
+              distance: Math.round(d),
+              isAccessible: true,
+            });
+          }
+        }
+      }
+    }
 
     handleUpdateFloor({
       ...activeFloor,
@@ -699,6 +931,14 @@ export function App() {
               canRedo={redoStack.length > 0}
               onOpenUnderlayModal={() => setIsUnderlayModalOpen(true)}
               hasUnderlay={!!activeFloor.underlay?.url}
+              isAllElementsSelected={isAllElementsSelected}
+              onSelectAllElements={() => {
+                setIsAllElementsSelected((prev) => !prev);
+                setSelectedRoom(null);
+                setSelectedZone(null);
+                setSelectedTransit(null);
+                setSelectedPOI(null);
+              }}
             />
 
             {/* Inspector Panels */}
@@ -719,7 +959,30 @@ export function App() {
                   });
                   setSelectedRoom(null);
                 }}
+                onDuplicate={handleDuplicateRoom}
                 onClose={() => setSelectedRoom(null)}
+              />
+            )}
+
+            {selectedZone && (
+              <ZoneInspector
+                zone={selectedZone}
+                onUpdate={(updated) => {
+                  handleUpdateFloor({
+                    ...activeFloor,
+                    zones: (activeFloor.zones || []).map((z) => (z.id === updated.id ? updated : z)),
+                  });
+                  setSelectedZone(updated);
+                }}
+                onDelete={(zoneId) => {
+                  handleUpdateFloor({
+                    ...activeFloor,
+                    zones: (activeFloor.zones || []).filter((z) => z.id !== zoneId),
+                  });
+                  setSelectedZone(null);
+                }}
+                onDuplicate={handleDuplicateZone}
+                onClose={() => setSelectedZone(null)}
               />
             )}
 
@@ -744,6 +1007,29 @@ export function App() {
                   setSelectedTransit(null);
                 }}
                 onClose={() => setSelectedTransit(null)}
+              />
+            )}
+
+            {selectedPOI && (
+              <POIInspector
+                poi={selectedPOI}
+                onUpdate={(updated) => {
+                  handleUpdateFloor({
+                    ...activeFloor,
+                    pois: activeFloor.pois.map((p) =>
+                      p.id === updated.id ? updated : p
+                    ),
+                  });
+                  setSelectedPOI(updated);
+                }}
+                onDelete={(poiId) => {
+                  handleUpdateFloor({
+                    ...activeFloor,
+                    pois: activeFloor.pois.filter((p) => p.id !== poiId),
+                  });
+                  setSelectedPOI(null);
+                }}
+                onClose={() => setSelectedPOI(null)}
               />
             )}
           </aside>
@@ -781,26 +1067,61 @@ export function App() {
               floor={activeFloor}
               activeTool={activeTool}
               isStudioMode={appMode === 'studio'}
+              isAllElementsSelected={isAllElementsSelected}
+              onToggleSelectAll={setIsAllElementsSelected}
               selectedRoomId={selectedRoom?.id}
+              selectedZoneId={selectedZone?.id}
               selectedTransitId={selectedTransit?.id}
               selectedPOIId={selectedPOI?.id}
               startRoomId={startRoomId}
               targetRoomId={targetRoomId}
+              intermediateStopIds={intermediateStopIds}
               routeResult={routeResult}
               activeSimulationProgress={simulationProgress}
+              activeStep={activeRouteStep}
               gridSnapSize={gridSnapSize}
               onSelectRoom={(room) => {
                 setSelectedRoom(room);
+                if (room) {
+                  setSelectedZone(null);
+                  setSelectedTransit(null);
+                  setSelectedPOI(null);
+                }
                 if (room && (appMode === 'wayfinder' || appMode === 'kiosk')) {
                   setIsRoomDetailOpen(true);
                 } else {
                   setIsRoomDetailOpen(false);
                 }
               }}
-              onSelectTransit={(transit) => setSelectedTransit(transit)}
-              onSelectPOI={(poi) => setSelectedPOI(poi)}
+              onSelectZone={(zone) => {
+                setSelectedZone(zone);
+                if (zone) {
+                  setSelectedRoom(null);
+                  setSelectedTransit(null);
+                  setSelectedPOI(null);
+                }
+              }}
+              onSelectTransit={(transit) => {
+                setSelectedTransit(transit);
+                if (transit) {
+                  setSelectedRoom(null);
+                  setSelectedZone(null);
+                  setSelectedPOI(null);
+                }
+              }}
+              onSelectPOI={(poi) => {
+                setSelectedPOI(poi);
+                if (poi) {
+                  setSelectedRoom(null);
+                  setSelectedZone(null);
+                  setSelectedTransit(null);
+                }
+              }}
               onSetAsStartRoom={(roomId) => setStartRoomId(roomId)}
               onSetAsTargetRoom={(roomId) => setTargetRoomId(roomId)}
+              onAddIntermediateStop={handleAddIntermediateStop}
+              onDuplicateRoom={handleDuplicateRoom}
+              onDuplicateZone={handleDuplicateZone}
               onUpdateFloor={handleUpdateFloor}
             />
           )}
@@ -822,8 +1143,10 @@ export function App() {
               onSetStartRoom={setStartRoomId}
               onSetTargetRoom={setTargetRoomId}
               onSetIntermediateStops={setIntermediateStopIds}
+              onOptimizeStops={handleOptimizeStops}
               onSetPreferences={setRoutePreferences}
               onStepClick={(step: RouteStep) => {
+                setActiveRouteStep(step);
                 if (step.floorId !== activeFloor.id) {
                   setActiveFloorId(step.floorId);
                 }
@@ -836,6 +1159,7 @@ export function App() {
               }}
               onOpenShareModal={() => setIsShareModalOpen(true)}
               onInjectNearestPOI={handleInjectNearestPOI}
+              onInjectNearestTransit={handleInjectNearestTransit}
             />
           </aside>
         )}

@@ -1,6 +1,6 @@
-# ARCHIPATH // Technical Blueprint Floorplan & Multi-Campus Wayfinding Studio
+# POLLAKFIND // Technical Blueprint Floorplan & Multi-Campus Wayfinding Studio
 
-**ARCHIPATH** is a high-performance, web-only architectural CAD and wayfinding route planning platform designed for multi-floor educational institutions, university campuses, research facilities, and medical complexes across multiple cities.
+**POLLAKFIND** is a high-performance, web-only architectural CAD and wayfinding route planning platform designed for multi-floor educational institutions, university campuses, research facilities, and medical complexes across multiple cities.
 
 Built around a technical blueprint design system featuring a minimalist mosaic grid, forest green (`#1A3C2B`) and light-gray paper-textured (`#F7F7F5`) palette, editorial typography with **Space Grotesk** and **JetBrains Mono**, bento grid telemetry HUDs, and 2D flat wireframe aesthetics with zero shadows.
 

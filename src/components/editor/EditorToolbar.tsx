@@ -16,6 +16,8 @@ import {
   Undo2,
   Redo2,
   Image as ImageIcon,
+  LandPlot,
+  BoxSelect,
 } from 'lucide-react';
 
 interface EditorToolbarProps {
@@ -31,6 +33,8 @@ interface EditorToolbarProps {
   canRedo?: boolean;
   onOpenUnderlayModal?: () => void;
   hasUnderlay?: boolean;
+  isAllElementsSelected?: boolean;
+  onSelectAllElements?: () => void;
   className?: string;
 }
 
@@ -47,11 +51,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   canRedo = false,
   onOpenUnderlayModal,
   hasUnderlay = false,
+  isAllElementsSelected = false,
+  onSelectAllElements,
   className = '',
 }) => {
   const tools: { id: EditorTool; label: string; icon: React.ReactNode; shortcut: string }[] = [
     { id: 'select', label: 'Kijelölés / Mozgatás', icon: <MousePointer className="w-4 h-4" />, shortcut: 'V' },
     { id: 'room', label: 'Szoba / Terem rajzolás', icon: <Square className="w-4 h-4" />, shortcut: 'R' },
+    { id: 'zone', label: 'Zóna / Aula rajzolás', icon: <LandPlot className="w-4 h-4" />, shortcut: 'Z' },
     { id: 'wall', label: 'Fal vonal rajzolás', icon: <Minus className="w-4 h-4" />, shortcut: 'W' },
     { id: 'door', label: 'Ajtó elhelyezése', icon: <DoorOpen className="w-4 h-4" />, shortcut: 'D' },
     { id: 'transit', label: 'Lift / Lépcsőakna', icon: <Layers className="w-4 h-4" />, shortcut: 'T' },
@@ -88,6 +95,33 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <Redo2 className="w-3 h-3" />
           </button>
         </div>
+      </div>
+
+      {/* Select All Elements Toggle Button */}
+      <div>
+        <button
+          onClick={onSelectAllElements}
+          className={`w-full py-1.5 px-2 border font-mono text-[11px] font-bold flex items-center justify-between transition-colors cursor-pointer ${
+            isAllElementsSelected
+              ? 'bg-[#1A3C2B] text-white border-[#1A3C2B] shadow-xs'
+              : 'bg-white border-[#1A3C2B]/40 hover:border-[#1A3C2B] text-[#1A3C2B] hover:bg-[#F0F5F2]'
+          }`}
+          title="Szint összes elemének együttes kijelölése és mozgatása (Ctrl+A)"
+        >
+          <div className="flex items-center gap-1.5">
+            <BoxSelect className="w-3.5 h-3.5 text-current" />
+            <span>ÖSSZES ELEM</span>
+          </div>
+          <span
+            className={`text-[8.5px] px-1 border ${
+              isAllElementsSelected
+                ? 'border-white/40 text-white'
+                : 'border-[#1A3C2B]/30 text-[#1A3C2B]/60'
+            }`}
+          >
+            Ctrl+A
+          </span>
+        </button>
       </div>
 
       {/* Primary Tools Grid */}

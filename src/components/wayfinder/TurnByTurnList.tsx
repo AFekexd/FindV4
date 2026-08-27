@@ -52,8 +52,14 @@ export const TurnByTurnList: React.FC<TurnByTurnListProps> = ({
           iconNode = <CornerUpLeft className="w-4 h-4 text-[#1A3C2B]" />;
         } else if (step.iconType === 'turn_right') {
           iconNode = <CornerUpRight className="w-4 h-4 text-[#1A3C2B]" />;
-        } else if (step.iconType === 'transit') {
-          iconNode = <Layers className="w-4 h-4 text-[#1A3C2B]" />;
+        } else if (step.iconType === 'transit' || step.isFloorChange) {
+          if (step.transitType === 'stairs') {
+            iconNode = <span className="text-sm">🪜</span>;
+          } else if (step.transitType === 'elevator') {
+            iconNode = <span className="text-sm">🛗</span>;
+          } else {
+            iconNode = <Layers className="w-4 h-4 text-[#1A3C2B]" />;
+          }
         }
 
         return (

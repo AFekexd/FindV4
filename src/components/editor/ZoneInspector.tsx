@@ -1,19 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { Room, RoomCategory } from '../../types';
-import { ROOM_CATEGORY_NAMES_HU } from '../../types';
+import type { Zone, ZoneType } from '../../types';
+import { ZONE_TYPES, ZONE_TYPE_NAMES_HU, ZONE_TYPE_COLORS } from '../../types';
 import {
   Trash2,
-  Check,
-  Save,
   Layers,
   Ruler,
   Maximize2,
   Minimize2,
-  ExternalLink,
-  PlusCircle,
   Scissors,
-  HelpCircle,
   Copy,
+  LandPlot,
+  Palette,
 } from 'lucide-react';
 import {
   polygonAreaInSquareMeters,
@@ -22,17 +19,17 @@ import {
   insertVertexInPolygon,
 } from '../../utils/geometry';
 
-interface RoomInspectorProps {
-  room: Room;
-  onUpdate: (updated: Room) => void;
-  onDelete: (roomId: string) => void;
-  onDuplicate?: (room: Room) => void;
+interface ZoneInspectorProps {
+  zone: Zone;
+  onUpdate: (updated: Zone) => void;
+  onDelete: (zoneId: string) => void;
+  onDuplicate?: (zone: Zone) => void;
   onClose: () => void;
   initialIsModal?: boolean;
 }
 
-export const RoomInspector: React.FC<RoomInspectorProps> = ({
-  room,
+export const ZoneInspector: React.FC<ZoneInspectorProps> = ({
+  zone,
   onUpdate,
   onDelete,
   onDuplicate,
@@ -41,39 +38,25 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
 }) => {
   const [isModal, setIsModal] = useState<boolean>(initialIsModal);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState<boolean>(false);
-  const [formData, setFormData] = useState<Room>(room);
+  const [formData, setFormData] = useState<Zone>(zone);
   const updateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Synchronize local form data if selected room changes
   useEffect(() => {
-    setFormData(room);
-  }, [room.id]);
-
-  const categories: RoomCategory[] = [
-    'classroom',
-    'laboratory',
-    'auditorium',
-    'office',
-    'library',
-    'cafeteria',
-    'restroom',
-    'lounge',
-    'clinic',
-    'utility',
-    'entrance',
-  ];
+    setFormData(zone);
+  }, [zone.id]);
 
   const area = polygonAreaInSquareMeters(formData.polygon);
   const perimeter = polygonPerimeterInMeters(formData.polygon);
   const edges = getPolygonEdges(formData.polygon);
+  const currentPalette = ZONE_TYPE_COLORS[formData.type] || ZONE_TYPE_COLORS.custom;
 
-  const commitUpdate = (updated: Room) => {
+  const commitUpdate = (updated: Zone) => {
     if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
     setFormData(updated);
     onUpdate(updated);
   };
 
-  const handleFieldChange = (field: keyof Room, value: any) => {
+  const handleFieldChange = (field: keyof Zone, value: any) => {
     const updated = { ...formData, [field]: value };
     setFormData(updated);
 
@@ -109,24 +92,24 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
     commitUpdate({ ...formData, polygon: newPolygon });
   };
 
-  // Render Expanded Floating Popup Modal
+  // Expanded Floating Popup Modal
   if (isModal) {
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A3C2B]/50 backdrop-blur-xs select-none"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A3C2B]/50 backdrop-blur-xs select-none font-mono text-xs"
         onClick={(e) => {
           if (e.target === e.currentTarget) setIsModal(false);
         }}
       >
-        <div className="bg-[#F7F7F5] border-2 border-[#1A3C2B] w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 font-mono">
+        <div className="bg-[#F7F7F5] border-2 border-[#1A3C2B] w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
           {/* Modal Header */}
           <div className="p-3 bg-[#1A3C2B] text-[#F7F7F5] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="font-mono text-xs px-2 py-0.5 bg-[#F7F7F5] text-[#1A3C2B] font-bold">
-                {formData.code || 'HELYISÉG'}
+                {formData.code || 'ZÓNA'}
               </span>
               <span className="font-mono text-[11px] font-bold tracking-wider uppercase text-[#F7F7F5]">
-                HELYISÉG TULAJDONSÁGOK & POPUP ADATLAP
+                ÉPÍTÉSZETI ZÓNA & AULA ADATLAP
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -148,8 +131,8 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
             </div>
           </div>
 
-          {/* Modal Body - 2 Column Layout */}
-          <div className="p-4 overflow-y-auto flex flex-col gap-4 text-xs">
+          {/* Modal Body */}
+          <div className="p-4 overflow-y-auto flex flex-col gap-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Left Column: Form Fields */}
               <div className="flex flex-col gap-3">
@@ -160,81 +143,55 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={formData.code}
+                      value={formData.code || ''}
                       onChange={(e) => handleFieldChange('code', e.target.value)}
                       onBlur={handleBlur}
+                      placeholder="pl. Z-01"
                       className="w-full bg-white border border-[#1A3C2B] px-2 py-1 text-xs text-[#1A3C2B] font-bold"
                     />
                   </div>
                   <div className="col-span-2">
                     <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-                      HELYISÉG MEGNEVEZÉSE
+                      ZÓNA MEGNEVEZÉSE
                     </label>
                     <input
                       type="text"
                       value={formData.name}
                       onChange={(e) => handleFieldChange('name', e.target.value)}
                       onBlur={handleBlur}
-                      className="w-full bg-white border border-[#1A3C2B] px-2 py-1 text-xs text-[#1A3C2B]"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-                      KATEGÓRIA
-                    </label>
-                    <select
-                      value={formData.category}
-                      onChange={(e) => commitUpdate({ ...formData, category: e.target.value as RoomCategory })}
-                      className="w-full bg-white border border-[#1A3C2B] px-2 py-1 text-xs text-[#1A3C2B]"
-                    >
-                      {categories.map((c) => (
-                        <option key={c} value={c}>
-                          {ROOM_CATEGORY_NAMES_HU[c] || c}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-                      FÉRŐHELY (FŐ)
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.capacity || ''}
-                      onChange={(e) => handleFieldChange('capacity', parseInt(e.target.value) || 0)}
-                      onBlur={handleBlur}
-                      className="w-full bg-white border border-[#1A3C2B] px-2 py-1 text-xs text-[#1A3C2B]"
+                      placeholder="pl. Központi Aula & Főcsarnok"
+                      className="w-full bg-white border border-[#1A3C2B] px-2 py-1 text-xs text-[#1A3C2B] font-bold"
                     />
                   </div>
                 </div>
 
                 <div>
                   <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-                    TANSZÉK / SZERVEZETI EGYSÉG
+                    ZÓNA TÍPUSA
                   </label>
-                  <input
-                    type="text"
-                    value={formData.department || ''}
-                    onChange={(e) => handleFieldChange('department', e.target.value)}
-                    onBlur={handleBlur}
-                    placeholder="pl. Villamosmérnöki Tanszék"
+                  <select
+                    value={formData.type}
+                    onChange={(e) => commitUpdate({ ...formData, type: e.target.value as ZoneType })}
                     className="w-full bg-white border border-[#1A3C2B] px-2 py-1 text-xs text-[#1A3C2B]"
-                  />
+                  >
+                    {ZONE_TYPES.map((zt) => (
+                      <option key={zt} value={zt}>
+                        {ZONE_TYPE_NAMES_HU[zt]}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
                   <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-                    FELELŐS / OKTATÓ
+                    LEÍRÁS / MEGJEGYZÉS
                   </label>
-                  <input
-                    type="text"
-                    value={formData.occupant || ''}
-                    onChange={(e) => handleFieldChange('occupant', e.target.value)}
+                  <textarea
+                    rows={2}
+                    value={formData.description || ''}
+                    onChange={(e) => handleFieldChange('description', e.target.value)}
                     onBlur={handleBlur}
-                    placeholder="pl. Dr. Kiss László"
+                    placeholder="pl. Tágas átrium pihenőszigetekkel és természetes fénytetővel"
                     className="w-full bg-white border border-[#1A3C2B] px-2 py-1 text-xs text-[#1A3C2B]"
                   />
                 </div>
@@ -245,33 +202,27 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
                   </label>
                   <input
                     type="text"
-                    value={formData.tags.join(', ')}
+                    value={(formData.tags || []).join(', ')}
                     onChange={(e) => handleTagsChange(e.target.value)}
                     onBlur={handleBlur}
-                    placeholder="Akadálymentes, Projektor, Labor"
+                    placeholder="Aula, Wi-Fi, Rendezvénytér"
                     className="w-full bg-white border border-[#1A3C2B] px-2 py-1 text-xs text-[#1A3C2B]"
                   />
                 </div>
-
-                <label className="flex items-center gap-2 cursor-pointer bg-white border border-[#D0D0C7] p-2 mt-1">
-                  <input
-                    type="checkbox"
-                    checked={!!formData.isRestricted}
-                    onChange={(e) => commitUpdate({ ...formData, isRestricted: e.target.checked })}
-                    className="accent-[#1A3C2B]"
-                  />
-                  <span className="text-[10px] text-[#1A3C2B] font-bold">
-                    BIZTONSÁGI ZÁRT ZÓNA (SÁROZOTT JELÖLÉSSEL)
-                  </span>
-                </label>
               </div>
 
-              {/* Right Column: Geometry, Metrics & Walls */}
+              {/* Right Column: Telemetry & Edges */}
               <div className="flex flex-col gap-3">
                 {/* Telemetry Box */}
                 <div className="bg-white border border-[#1A3C2B]/30 p-3 flex flex-col gap-2">
-                  <span className="font-bold text-[10px] uppercase text-[#1A3C2B] border-b border-[#1A3C2B]/10 pb-1">
-                    📐 ÉPÍTÉSZETI TELEMETRIA
+                  <span className="font-bold text-[10px] uppercase text-[#1A3C2B] border-b border-[#1A3C2B]/10 pb-1 flex items-center justify-between">
+                    <span>📐 ZÓNA TELEMETRIA</span>
+                    <span
+                      className="px-1.5 py-0.2 text-[9px] font-bold rounded-xs"
+                      style={{ backgroundColor: currentPalette.stroke, color: '#FFFFFF' }}
+                    >
+                      {ZONE_TYPE_NAMES_HU[formData.type]}
+                    </span>
                   </span>
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-[#1A3C2B]/70">ALAPTERÜLET:</span>
@@ -280,36 +231,34 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
                     </span>
                   </div>
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-[#1A3C2B]/70">FALAK ÖSSZHOSSZA:</span>
+                    <span className="text-[#1A3C2B]/70">HATÁROLÓVONAL HOSSZA:</span>
                     <span className="font-bold text-[#1A3C2B]">{perimeter.toFixed(1)} m</span>
                   </div>
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-[#1A3C2B]/70">GEOMETRIA:</span>
-                    <span className="font-bold text-[#1A3C2B]">
-                      {formData.polygon.length} sarokpont ({formData.polygon.length === 4 ? 'Téglalap' : formData.polygon.length === 6 ? 'L-alakú / Bővített' : 'Egyedi sokszög'})
-                    </span>
+                    <span className="text-[#1A3C2B]/70">SAROKPONTOK:</span>
+                    <span className="font-bold text-[#1A3C2B]">{formData.polygon.length} db sarokpont</span>
                   </div>
                 </div>
 
-                {/* Wall Segments */}
+                {/* Wall Segments / Edges */}
                 <div className="flex flex-col gap-1.5 border border-[#1A3C2B]/20 p-2.5 bg-[#FAF9F6] flex-1">
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-[10px] uppercase text-[#1A3C2B] flex items-center gap-1">
-                      <Ruler className="w-3.5 h-3.5" />
-                      <span>FALSZAKASZOK ({edges.length} DB)</span>
+                      <Ruler className="w-3 h-3" />
+                      <span>HATÁROLÓ SZAKASZOK ({edges.length} DB)</span>
                     </span>
                     <span className="text-[9px] text-[#1A3C2B]/60">ÉLOSZTÁS: [+] GOMB</span>
                   </div>
 
-                  <div className="max-h-48 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
+                  <div className="max-h-40 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
                     {edges.map((edge) => (
                       <div
                         key={edge.index}
-                        className="flex items-center justify-between bg-white border border-[#D0D0C7] px-2.5 py-1.5 text-xs"
+                        className="flex items-center justify-between bg-white border border-[#D0D0C7] px-2.5 py-1 text-xs"
                       >
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-[10px] px-1.5 py-0.5 bg-[#1A3C2B]/10">
-                            {edge.index + 1}. Fal
+                            {edge.index + 1}. Él
                           </span>
                           <span className="font-bold text-[#1A3C2B]">{edge.lengthMeters.toFixed(2)} m</span>
                         </div>
@@ -336,7 +285,7 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
               {isConfirmingDelete ? (
                 <div className="flex items-center gap-2 bg-red-50 border border-red-500 px-2.5 py-1 animate-in fade-in duration-100">
                   <span className="text-xs font-bold text-red-800">
-                    Biztosan törölni kívánja a(z) <b>{formData.code || formData.name}</b> termet?
+                    Biztosan törölni kívánja a(z) <b>{formData.name || formData.code}</b> zónát?
                   </span>
                   <button
                     onClick={() => {
@@ -358,7 +307,7 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
                 <button
                   onClick={() => setIsConfirmingDelete(true)}
                   className="px-3 py-1.5 bg-white hover:bg-red-50 border border-red-400 text-red-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Helyiség törlése"
+                  title="Zóna törlése"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>TÖRLÉS</span>
@@ -369,7 +318,7 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
                 <button
                   onClick={() => onDuplicate(formData)}
                   className="px-3 py-1.5 bg-[#F0F5F2] hover:bg-[#1A3C2B] hover:text-white border border-[#1A3C2B] text-[#1A3C2B] text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Terem másolása és duplikálása (Ctrl+D)"
+                  title="Zóna duplikálása (Ctrl+D)"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>MÁSOLÁS (Ctrl+D)</span>
@@ -391,13 +340,14 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
     );
   }
 
+  // Docked Sidebar View
   return (
     <div className="bg-[#F7F7F5] border border-[#1A3C2B] p-3 flex flex-col gap-3 font-mono text-xs select-none shadow-xs">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[#1A3C2B]/20 pb-1.5">
         <div className="flex items-center gap-1.5">
-          <Layers className="w-3.5 h-3.5 text-[#1A3C2B]" />
-          <span className="font-bold text-[#1A3C2B] uppercase">HELYISÉG TULAJDONSÁGOK</span>
+          <LandPlot className="w-3.5 h-3.5 text-[#1A3C2B]" />
+          <span className="font-bold text-[#1A3C2B] uppercase">ZÓNA / AULA TULAJDONSÁGOK</span>
         </div>
         <div className="flex items-center gap-1.5">
           <button
@@ -421,27 +371,46 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
           </label>
           <input
             type="text"
-            value={formData.code}
+            value={formData.code || ''}
             onChange={(e) => handleFieldChange('code', e.target.value)}
             onBlur={handleBlur}
+            placeholder="Z-01"
             className="w-full bg-white border border-[#1A3C2B] px-1.5 py-1 text-xs text-[#1A3C2B] font-bold"
           />
         </div>
         <div className="col-span-2">
           <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-            HELYISÉG MEGNEVEZÉSE
+            ZÓNA MEGNEVEZÉSE
           </label>
           <input
             type="text"
             value={formData.name}
             onChange={(e) => handleFieldChange('name', e.target.value)}
             onBlur={handleBlur}
-            className="w-full bg-white border border-[#1A3C2B] px-1.5 py-1 text-xs text-[#1A3C2B]"
+            className="w-full bg-white border border-[#1A3C2B] px-1.5 py-1 text-xs text-[#1A3C2B] font-bold"
           />
         </div>
       </div>
 
-      {/* Geometry Telemetry Banner (Alapterület, Kerület, Sarokpontok) */}
+      {/* Zone Type */}
+      <div>
+        <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
+          ZÓNA TÍPUSA
+        </label>
+        <select
+          value={formData.type}
+          onChange={(e) => commitUpdate({ ...formData, type: e.target.value as ZoneType })}
+          className="w-full bg-white border border-[#1A3C2B] px-1.5 py-1 text-xs text-[#1A3C2B]"
+        >
+          {ZONE_TYPES.map((zt) => (
+            <option key={zt} value={zt}>
+              {ZONE_TYPE_NAMES_HU[zt]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Telemetry Banner */}
       <div className="bg-white border border-[#1A3C2B]/30 p-2 flex flex-col gap-1.5">
         <div className="flex justify-between items-center text-[10px]">
           <span className="text-[#1A3C2B]/70">ALAPTERÜLET:</span>
@@ -450,14 +419,12 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
           </span>
         </div>
         <div className="flex justify-between items-center text-[10px]">
-          <span className="text-[#1A3C2B]/70">FALAK ÖSSZHOSSZA:</span>
+          <span className="text-[#1A3C2B]/70">HATÁROLÓVONAL:</span>
           <span className="font-bold text-[#1A3C2B]">{perimeter.toFixed(1)} m</span>
         </div>
         <div className="flex justify-between items-center text-[10px]">
-          <span className="text-[#1A3C2B]/70">GEOMETRIA:</span>
-          <span className="font-bold text-[#1A3C2B]">
-            {formData.polygon.length} sarokpont ({formData.polygon.length === 4 ? 'Téglalap' : formData.polygon.length === 6 ? 'L-alakú / Bővített' : 'Egyedi sokszög'})
-          </span>
+          <span className="text-[#1A3C2B]/70">SAROKPONTOK:</span>
+          <span className="font-bold text-[#1A3C2B]">{formData.polygon.length} db</span>
         </div>
       </div>
 
@@ -466,27 +433,27 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
         <div className="flex items-center justify-between mb-1">
           <span className="font-bold text-[9px] uppercase text-[#1A3C2B] flex items-center gap-1">
             <Ruler className="w-3 h-3" />
-            <span>FALSZAKASZOK ({edges.length} DB)</span>
+            <span>HATÁROLÓ SZAKASZOK ({edges.length} DB)</span>
           </span>
           <span className="text-[8px] text-[#1A3C2B]/60">ÉLOSZTÁS: [+] GOMB</span>
         </div>
 
-        <div className="max-h-32 overflow-y-auto flex flex-col gap-1 pr-0.5">
+        <div className="max-h-28 overflow-y-auto flex flex-col gap-1 pr-0.5">
           {edges.map((edge) => (
             <div
               key={edge.index}
-              className="flex items-center justify-between bg-white border border-[#D0D0C7] px-2 py-1 text-[10px]"
+              className="flex items-center justify-between bg-white border border-[#D0D0C7] px-2 py-0.8 text-[10px]"
             >
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-[9px] px-1 bg-[#1A3C2B]/10">
-                  {edge.index + 1}. Fal
+                  {edge.index + 1}. Él
                 </span>
                 <span className="font-bold text-[#1A3C2B]">{edge.lengthMeters.toFixed(2)} m</span>
               </div>
 
               <button
                 onClick={() => handleSplitEdge(edge.index)}
-                className="px-1.5 py-0.5 bg-[#F0F5F2] hover:bg-[#1A3C2B] hover:text-white border border-[#1A3C2B]/40 text-[9px] font-bold transition-colors flex items-center gap-1"
+                className="px-1.5 py-0.5 bg-[#F0F5F2] hover:bg-[#1A3C2B] hover:text-white border border-[#1A3C2B]/40 text-[9px] font-bold transition-colors flex items-center gap-1 cursor-pointer"
                 title="Falszakasz felezése és új sarokpont beszúrása"
               >
                 <Scissors className="w-2.5 h-2.5" />
@@ -495,69 +462,19 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
             </div>
           ))}
         </div>
-
-        <div className="text-[8.5px] text-[#1A3C2B]/70 mt-1 leading-tight border-t border-[#1A3C2B]/10 pt-1">
-          💡 <i>Tipp: A rajzvásznon a kijelölt terem falainak közepén lévő <b>[+]</b> pontot közvetlenül húzva is létrehozhat új sarkot!</i>
-        </div>
       </div>
 
-      {/* Category & Capacity */}
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-            KATEGÓRIA
-          </label>
-          <select
-            value={formData.category}
-            onChange={(e) => commitUpdate({ ...formData, category: e.target.value as RoomCategory })}
-            className="w-full bg-white border border-[#1A3C2B] px-1.5 py-1 text-xs text-[#1A3C2B]"
-          >
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {ROOM_CATEGORY_NAMES_HU[c] || c}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-            FÉRŐHELY (FŐ)
-          </label>
-          <input
-            type="number"
-            value={formData.capacity || ''}
-            onChange={(e) => handleFieldChange('capacity', parseInt(e.target.value) || 0)}
-            onBlur={handleBlur}
-            className="w-full bg-white border border-[#1A3C2B] px-1.5 py-1 text-xs text-[#1A3C2B]"
-          />
-        </div>
-      </div>
-
-      {/* Department & Occupant */}
+      {/* Description */}
       <div>
         <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-          TANSZÉK / SZERVEZETI EGYSÉG
+          LEÍRÁS
         </label>
         <input
           type="text"
-          value={formData.department || ''}
-          onChange={(e) => handleFieldChange('department', e.target.value)}
+          value={formData.description || ''}
+          onChange={(e) => handleFieldChange('description', e.target.value)}
           onBlur={handleBlur}
-          placeholder="pl. Villamosmérnöki Tanszék"
-          className="w-full bg-white border border-[#1A3C2B] px-1.5 py-1 text-xs text-[#1A3C2B]"
-        />
-      </div>
-
-      <div>
-        <label className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 block mb-0.5">
-          FELELŐS / OKTATÓ
-        </label>
-        <input
-          type="text"
-          value={formData.occupant || ''}
-          onChange={(e) => handleFieldChange('occupant', e.target.value)}
-          onBlur={handleBlur}
-          placeholder="pl. Dr. Kiss László"
+          placeholder="pl. Központi átrium ülőbútorokkal"
           className="w-full bg-white border border-[#1A3C2B] px-1.5 py-1 text-xs text-[#1A3C2B]"
         />
       </div>
@@ -569,26 +486,13 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
         </label>
         <input
           type="text"
-          value={formData.tags.join(', ')}
+          value={(formData.tags || []).join(', ')}
           onChange={(e) => handleTagsChange(e.target.value)}
           onBlur={handleBlur}
-          placeholder="Akadálymentes, Projektor, Labor"
+          placeholder="Aula, Kávézó, Pihenő"
           className="w-full bg-white border border-[#1A3C2B] px-1.5 py-1 text-xs text-[#1A3C2B]"
         />
       </div>
-
-      {/* Restricted Switch */}
-      <label className="flex items-center gap-2 cursor-pointer bg-white border border-[#D0D0C7] p-2">
-        <input
-          type="checkbox"
-          checked={!!formData.isRestricted}
-          onChange={(e) => commitUpdate({ ...formData, isRestricted: e.target.checked })}
-          className="accent-[#1A3C2B]"
-        />
-        <span className="text-[10px] text-[#1A3C2B] font-bold">
-          BIZTONSÁGI ZÁRT ZÓNA (SÁROZOTT JELÖLÉSSEL)
-        </span>
-      </label>
 
       {/* Actions */}
       <div className="flex items-center justify-between border-t border-[#1A3C2B]/20 pt-2">
@@ -616,7 +520,7 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
             <button
               onClick={() => setIsConfirmingDelete(true)}
               className="px-2 py-1 bg-white hover:bg-red-50 border border-red-400 text-red-700 text-[10px] flex items-center gap-1 transition-colors cursor-pointer"
-              title="Helyiség törlése"
+              title="Zóna törlése"
             >
               <Trash2 className="w-3 h-3" />
               <span>TÖRLÉS</span>
@@ -627,7 +531,7 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
             <button
               onClick={() => onDuplicate(formData)}
               className="px-2 py-1 bg-[#F0F5F2] hover:bg-[#1A3C2B] hover:text-white border border-[#1A3C2B] text-[#1A3C2B] text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-              title="Terem másolása és duplikálása (Ctrl+D)"
+              title="Zóna duplikálása (Ctrl+D)"
             >
               <Copy className="w-3 h-3" />
               <span>MÁSOLÁS (Ctrl+D)</span>

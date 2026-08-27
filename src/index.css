@@ -147,8 +147,13 @@
     overflow: visible !important;
   }
 
-  /* Hide all app chrome, headers, modals, sidebars */
-  header, aside, .no-print {
+  /* Hide all app chrome, headers, modals, sidebars, floating overlays */
+  header, aside, footer, nav, .no-print {
+    display: none !important;
+  }
+
+  /* When export modal is active, hide everything outside the printable sheet */
+  body:has(.printable-sheet-target) #root > div > *:not(:has(.printable-sheet-target)) {
     display: none !important;
   }
 
@@ -157,8 +162,8 @@
     position: fixed !important;
     top: 0 !important;
     left: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
+    width: 100vw !important;
+    height: 100vh !important;
     margin: 0 !important;
     padding: 4mm !important;
     background: #FFFFFF !important;

@@ -19,6 +19,10 @@ export type RoomCategory =
 export type TransitType = 'stairs' | 'elevator' | 'escalator' | 'ramp';
 
 export type POIType =
+  | 'entrance'
+  | 'exit'
+  | 'fire_exit'
+  | 'accessible_entrance'
   | 'restroom_all'
   | 'restroom_men'
   | 'restroom_women'
@@ -29,8 +33,30 @@ export type POIType =
   | 'coffee'
   | 'reception'
   | 'vending'
-  | 'printer'
-  | 'fire_exit';
+  | 'printer';
+
+export type ZoneType =
+  | 'atrium'
+  | 'corridor'
+  | 'lounge'
+  | 'courtyard'
+  | 'exhibition'
+  | 'dining'
+  | 'security'
+  | 'custom';
+
+export interface Zone {
+  id: string;
+  floorId: string;
+  name: string;
+  code?: string;
+  type: ZoneType;
+  polygon: Point[];
+  color?: string;
+  opacity?: number;
+  description?: string;
+  tags: string[];
+}
 
 export interface Room {
   id: string;
@@ -132,6 +158,7 @@ export interface Floor {
   width: number;
   height: number;
   rooms: Room[];
+  zones?: Zone[];
   walls: Wall[];
   doors: Door[];
   transitConnectors: TransitConnector[];
@@ -169,6 +196,7 @@ export interface Institution {
 export type EditorTool =
   | 'select'
   | 'room'
+  | 'zone'
   | 'wall'
   | 'door'
   | 'transit'
@@ -216,6 +244,7 @@ export interface RouteResult {
 export interface RoutePreference {
   accessibilityOnly: boolean;
   prioritizeElevators: boolean;
+  prioritizeStairs?: boolean;
   fastestRoute: boolean;
 }
 
@@ -262,3 +291,99 @@ export const TRANSIT_NAMES_HU: Record<TransitType, string> = {
   escalator: 'Mozgólépcső',
   ramp: 'Akadálymentes Rámpa',
 };
+
+export const POI_NAMES_HU: Record<POIType, string> = {
+  entrance: 'Főbejárat / Épületbejárat',
+  exit: 'Kijárat',
+  fire_exit: 'Vészkijárat / Menekülés',
+  accessible_entrance: 'Akadálymentes bejárat',
+  restroom_all: 'Mosdó (Unisex)',
+  restroom_men: 'Férfi Mosdó',
+  restroom_women: 'Női Mosdó',
+  restroom_accessible: 'Akadálymentes Mosdó',
+  water: 'Ivókút / Vízautomata',
+  first_aid: 'Elsősegély állomás',
+  aed: 'Automata Defibrillátor (AED)',
+  coffee: 'Kávéautomata / Büfé',
+  reception: 'Porta / Információs pult',
+  vending: 'Ital- és Ételautomata',
+  printer: 'Nyomtató / Fénymásoló',
+};
+
+export const ZONE_TYPES: ZoneType[] = [
+  'atrium',
+  'corridor',
+  'lounge',
+  'courtyard',
+  'exhibition',
+  'dining',
+  'security',
+  'custom',
+];
+
+export const ZONE_TYPE_NAMES_HU: Record<ZoneType, string> = {
+  atrium: 'Aula / Központi Átrium',
+  corridor: 'Közlekedő Folyosó / Passzázs',
+  lounge: 'Közösségi & Tanuló Zóna',
+  courtyard: 'Belső Udvar / Terasz',
+  exhibition: 'Kiállítótér / Rendezvénytér',
+  dining: 'Étkező & Büfé Zóna',
+  security: 'Biztonsági & Beléptető Zóna',
+  custom: 'Egyedi Zóna',
+};
+
+export const ZONE_TYPE_COLORS: Record<
+  ZoneType,
+  { fill: string; stroke: string; badge: string; text: string }
+> = {
+  atrium: {
+    fill: 'rgba(217, 119, 6, 0.12)',
+    stroke: '#D97706',
+    badge: '#D97706',
+    text: '#92400E',
+  },
+  corridor: {
+    fill: 'rgba(100, 116, 139, 0.10)',
+    stroke: '#64748B',
+    badge: '#64748B',
+    text: '#334155',
+  },
+  lounge: {
+    fill: 'rgba(16, 185, 129, 0.12)',
+    stroke: '#10B981',
+    badge: '#059669',
+    text: '#065F46',
+  },
+  courtyard: {
+    fill: 'rgba(34, 197, 94, 0.14)',
+    stroke: '#22C55E',
+    badge: '#16A34A',
+    text: '#14532D',
+  },
+  exhibition: {
+    fill: 'rgba(139, 92, 246, 0.12)',
+    stroke: '#8B5CF6',
+    badge: '#7C3AED',
+    text: '#5B21B6',
+  },
+  dining: {
+    fill: 'rgba(244, 63, 94, 0.12)',
+    stroke: '#F43F5E',
+    badge: '#E11D48',
+    text: '#9F1239',
+  },
+  security: {
+    fill: 'rgba(239, 68, 68, 0.14)',
+    stroke: '#EF4444',
+    badge: '#DC2626',
+    text: '#991B1B',
+  },
+  custom: {
+    fill: 'rgba(59, 130, 246, 0.12)',
+    stroke: '#3B82F6',
+    badge: '#2563EB',
+    text: '#1E40AF',
+  },
+};
+
+
