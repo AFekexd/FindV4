@@ -5,6 +5,9 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 6767
+    port: 6767,
+    allowedHosts: [
+      "find.afeke.com"
+    ]
   }
 })
