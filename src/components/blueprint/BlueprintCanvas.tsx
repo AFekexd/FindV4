@@ -160,6 +160,7 @@ interface BlueprintCanvasProps {
   selectedZoneId?: string | null;
   selectedTransitId?: string | null;
   selectedPOIId?: string | null;
+  selectedDoorId?: string | null;
   startRoomId?: string | null;
   targetRoomId?: string | null;
   intermediateStopIds?: string[];
@@ -171,6 +172,7 @@ interface BlueprintCanvasProps {
   onSelectZone?: (zone: Zone | null) => void;
   onSelectTransit?: (transit: TransitConnector | null) => void;
   onSelectPOI?: (poi: PointOfInterest | null) => void;
+  onSelectDoor?: (door: Door | null) => void;
   onSetAsStartRoom?: (roomId: string) => void;
   onSetAsTargetRoom?: (roomId: string) => void;
   onAddIntermediateStop?: (roomId: string) => void;
@@ -190,6 +192,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
   selectedZoneId,
   selectedTransitId,
   selectedPOIId,
+  selectedDoorId,
   startRoomId,
   targetRoomId,
   intermediateStopIds = [],
@@ -201,6 +204,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
   onSelectZone,
   onSelectTransit,
   onSelectPOI,
+  onSelectDoor,
   onSetAsStartRoom,
   onSetAsTargetRoom,
   onAddIntermediateStop,
@@ -1267,6 +1271,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
           doors: [...floor.doors, newDoor],
         });
       }
+      if (onSelectDoor) onSelectDoor(newDoor);
       return;
     }
 
@@ -1713,12 +1718,12 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         cursor: isPanning
           ? 'grabbing'
           : isStudioMode
-          ? activeTool === 'select'
-            ? 'default'
-            : activeTool === 'eraser'
-            ? 'crosshair'
-            : 'crosshair'
-          : 'default',
+            ? activeTool === 'select'
+              ? 'default'
+              : activeTool === 'eraser'
+                ? 'crosshair'
+                : 'crosshair'
+            : 'default',
       }}
     >
       {/* CAD Header Status Overlay (Bento Top Bar) */}
@@ -1739,9 +1744,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         <div className="relative">
           <button
             onClick={() => setShowLayerMenu(!showLayerMenu)}
-            className={`border border-[#1A3C2B] px-2.5 py-1.5 flex items-center gap-1.5 font-mono text-[11px] transition-colors ${
-              showLayerMenu ? 'bg-[#1A3C2B] text-[#F7F7F5]' : 'bg-[#F7F7F5] text-[#1A3C2B] hover:bg-[#EFEFEA]'
-            }`}
+            className={`border border-[#1A3C2B] px-2.5 py-1.5 flex items-center gap-1.5 font-mono text-[11px] transition-colors ${showLayerMenu ? 'bg-[#1A3C2B] text-[#F7F7F5]' : 'bg-[#F7F7F5] text-[#1A3C2B] hover:bg-[#EFEFEA]'
+              }`}
             title="Alaprajzi rétegek ki/bekapcsolása"
           >
             <Layers className="w-3.5 h-3.5" />
@@ -1933,19 +1937,19 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
             computedBounds.minY < 0 ||
             computedBounds.maxX > floor.width ||
             computedBounds.maxY > floor.height) && (
-            <rect
-              x="0"
-              y="0"
-              width={floor.width}
-              height={floor.height}
-              fill="none"
-              stroke="#1A3C2B"
-              strokeWidth="1"
-              strokeDasharray="6 4"
-              strokeOpacity="0.35"
-              pointerEvents="none"
-            />
-          )}
+              <rect
+                x="0"
+                y="0"
+                width={floor.width}
+                height={floor.height}
+                fill="none"
+                stroke="#1A3C2B"
+                strokeWidth="1"
+                strokeDasharray="6 4"
+                strokeOpacity="0.35"
+                pointerEvents="none"
+              />
+            )}
 
           {/* Background Architectural Underlay Image Tracing */}
           {floor.underlay && floor.underlay.visible && floor.underlay.url && (
@@ -2002,8 +2006,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
               const currentPolygon = isAllDragging
                 ? zone.polygon.map((p) => ({ x: p.x + activeAllOffset.dx, y: p.y + activeAllOffset.dy }))
                 : isDragging
-                ? activeDragZonePolygon.polygon
-                : zone.polygon;
+                  ? activeDragZonePolygon.polygon
+                  : zone.polygon;
               const centroid = polygonCentroid(currentPolygon);
               const area = polygonAreaInSquareMeters(currentPolygon);
               const pointsStr = currentPolygon.map((p) => `${p.x},${p.y}`).join(' ');
@@ -2203,8 +2207,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
               const currentPolygon = isAllDragging
                 ? room.polygon.map((p) => ({ x: p.x + activeAllOffset.dx, y: p.y + activeAllOffset.dy }))
                 : isDragging
-                ? activeDragPolygon.polygon
-                : room.polygon;
+                  ? activeDragPolygon.polygon
+                  : room.polygon;
               const centroid = polygonCentroid(currentPolygon);
               const area = polygonAreaInSquareMeters(currentPolygon);
               const pointsStr = currentPolygon.map((p) => `${p.x},${p.y}`).join(' ');
@@ -2233,9 +2237,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
               return (
                 <g
                   key={room.id}
-                  className={`cursor-pointer group ${
-                    activeTool === 'eraser' ? 'hover:opacity-60' : ''
-                  }`}
+                  className={`cursor-pointer group ${activeTool === 'eraser' ? 'hover:opacity-60' : ''
+                    }`}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -2630,13 +2633,13 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
               const currentStart = isAllDragging
                 ? { x: wall.start.x + activeAllOffset.dx, y: wall.start.y + activeAllOffset.dy }
                 : activeDragWall && activeDragWall.wallId === wall.id
-                ? activeDragWall.start
-                : wall.start;
+                  ? activeDragWall.start
+                  : wall.start;
               const currentEnd = isAllDragging
                 ? { x: wall.end.x + activeAllOffset.dx, y: wall.end.y + activeAllOffset.dy }
                 : activeDragWall && activeDragWall.wallId === wall.id
-                ? activeDragWall.end
-                : wall.end;
+                  ? activeDragWall.end
+                  : wall.end;
               const isDraggable = isStudioMode && activeTool === 'select';
 
               return (
@@ -2679,8 +2682,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                       activeTool === 'eraser'
                         ? 'cursor-pointer hover:stroke-red-600'
                         : isDraggable
-                        ? 'cursor-move hover:stroke-[#047857]'
-                        : ''
+                          ? 'cursor-move hover:stroke-[#047857]'
+                          : ''
                     }
                     onPointerDown={(e) => {
                       if (e.button === 0 && isDraggable) {
@@ -2707,9 +2710,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                   {/* Real-Time Wall Length Dimension Badge During Dragging */}
                   {activeDragWall && activeDragWall.wallId === wall.id && (
                     <g
-                      transform={`translate(${
-                        (currentStart.x + currentEnd.x) / 2
-                      }, ${(currentStart.y + currentEnd.y) / 2 - 14})`}
+                      transform={`translate(${(currentStart.x + currentEnd.x) / 2
+                        }, ${(currentStart.y + currentEnd.y) / 2 - 14})`}
                       className="pointer-events-none select-none"
                     >
                       <rect
@@ -2794,13 +2796,13 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
               const currentStart = isAllDragging
                 ? { x: door.start.x + activeAllOffset.dx, y: door.start.y + activeAllOffset.dy }
                 : activeDragDoor && activeDragDoor.doorId === door.id
-                ? activeDragDoor.start
-                : door.start;
+                  ? activeDragDoor.start
+                  : door.start;
               const currentEnd = isAllDragging
                 ? { x: door.end.x + activeAllOffset.dx, y: door.end.y + activeAllOffset.dy }
                 : activeDragDoor && activeDragDoor.doorId === door.id
-                ? activeDragDoor.end
-                : door.end;
+                  ? activeDragDoor.end
+                  : door.end;
               const isDraggable = isStudioMode && activeTool === 'select';
               const isDragging = activeDragDoor && activeDragDoor.doorId === door.id;
 
@@ -2837,8 +2839,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                     activeTool === 'eraser'
                       ? 'cursor-pointer hover:opacity-50'
                       : isDraggable
-                      ? 'cursor-move'
-                      : 'pointer-events-none'
+                        ? 'cursor-move'
+                        : 'pointer-events-none'
                   }
                   onPointerDown={(e) => {
                     if (e.button === 0 && isDraggable) {
@@ -2858,9 +2860,26 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                         ...floor,
                         doors: floor.doors.filter((d) => d.id !== door.id),
                       });
+                    } else if (isDraggable && onSelectDoor) {
+                      e.stopPropagation();
+                      onSelectDoor(door);
                     }
                   }}
                 >
+                  {/* Selection Halo Ring */}
+                  {selectedDoorId === door.id && (
+                    <line
+                      x1={currentStart.x}
+                      y1={currentStart.y}
+                      x2={currentEnd.x}
+                      y2={currentEnd.y}
+                      stroke="#047857"
+                      strokeWidth="12"
+                      strokeOpacity="0.4"
+                      strokeLinecap="round"
+                    />
+                  )}
+
                   {/* Large hit area for effortless pointer grabbing */}
                   <line
                     x1={currentStart.x}
@@ -2996,6 +3015,41 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                       </text>
                     </g>
                   )}
+
+                  {/* Special Door Type / Name Badge Indicator */}
+                  {(door.type === 'entrance' || door.type === 'fire_exit' || door.type === 'accessible_entrance' || door.type === 'exit' || (door.name && door.name.length > 0)) && (
+                    <g transform={`translate(${midPoint.x}, ${midPoint.y})`} className="pointer-events-none select-none">
+                      <rect
+                        x={-Math.max(28, ((door.name || (door.type === 'entrance' ? 'FŐBEJÁRAT' : door.type === 'fire_exit' ? 'VÉSZKIJÁRAT' : door.type === 'accessible_entrance' ? 'AKADÁLYMENTES' : 'KIJÁRAT')).length * 3.6))}
+                        y="-9"
+                        width={Math.max(56, ((door.name || (door.type === 'entrance' ? 'FŐBEJÁRAT' : door.type === 'fire_exit' ? 'VÉSZKIJÁRAT' : door.type === 'accessible_entrance' ? 'AKADÁLYMENTES' : 'KIJÁRAT')).length * 7.2))}
+                        height="18"
+                        rx="3"
+                        fill={
+                          door.type === 'entrance'
+                            ? '#047857'
+                            : door.type === 'fire_exit'
+                            ? '#B91C1C'
+                            : door.type === 'accessible_entrance'
+                            ? '#0284C7'
+                            : door.type === 'exit'
+                            ? '#D97706'
+                            : '#1A3C2B'
+                        }
+                        stroke="#FFFFFF"
+                        strokeWidth="1.2"
+                      />
+                      <text
+                        x="0"
+                        y="3"
+                        textAnchor="middle"
+                        fill="#FFFFFF"
+                        className="font-mono text-[8px] font-bold uppercase tracking-wider"
+                      >
+                        {door.name || (door.type === 'entrance' ? '🚪 FŐBEJÁRAT' : door.type === 'fire_exit' ? '🚨 VÉSZKIJÁRAT' : door.type === 'accessible_entrance' ? '♿ AKADÁLYMENTES' : '🚪 KIJÁRAT')}
+                      </text>
+                    </g>
+                  )}
                 </g>
               );
             })}
@@ -3013,16 +3067,15 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
               const currentPos = isAllDragging
                 ? { x: transit.position.x + activeAllOffset.dx, y: transit.position.y + activeAllOffset.dy }
                 : activeDragTransit && activeDragTransit.transitId === transit.id
-                ? activeDragTransit.position
-                : transit.position;
+                  ? activeDragTransit.position
+                  : transit.position;
               const isDraggable = isStudioMode && activeTool === 'select';
 
               return (
                 <g
                   key={transit.id}
-                  transform={`translate(${currentPos.x - transit.width / 2}, ${
-                    currentPos.y - transit.height / 2
-                  })`}
+                  transform={`translate(${currentPos.x - transit.width / 2}, ${currentPos.y - transit.height / 2
+                    })`}
                   className={`${activeTool === 'eraser' ? 'cursor-pointer hover:opacity-50' : isDraggable ? 'cursor-move' : 'cursor-pointer'}`}
                   onPointerDown={(e) => {
                     if (e.button === 0 && isDraggable) {
@@ -3165,8 +3218,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
               const currentPos = isAllDragging
                 ? { x: poi.position.x + activeAllOffset.dx, y: poi.position.y + activeAllOffset.dy }
                 : activeDragPoi && activeDragPoi.poiId === poi.id
-                ? activeDragPoi.position
-                : poi.position;
+                  ? activeDragPoi.position
+                  : poi.position;
               const isDraggable = isStudioMode && activeTool === 'select';
 
               return (
@@ -3225,35 +3278,35 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                       isStart
                         ? '#ECFDF5'
                         : isTarget
-                        ? '#FEF2F2'
-                        : isStop
-                        ? '#FFFBEB'
-                        : poi.type === 'entrance'
-                        ? '#ECFDF5'
-                        : poi.type === 'exit'
-                        ? '#FEF2F2'
-                        : poi.type === 'fire_exit'
-                        ? '#F0FDF4'
-                        : poi.type === 'accessible_entrance'
-                        ? '#F0F9FF'
-                        : '#F7F7F5'
+                          ? '#FEF2F2'
+                          : isStop
+                            ? '#FFFBEB'
+                            : poi.type === 'entrance'
+                              ? '#ECFDF5'
+                              : poi.type === 'exit'
+                                ? '#FEF2F2'
+                                : poi.type === 'fire_exit'
+                                  ? '#F0FDF4'
+                                  : poi.type === 'accessible_entrance'
+                                    ? '#F0F9FF'
+                                    : '#F7F7F5'
                     }
                     stroke={
                       isStart
                         ? '#047857'
                         : isTarget
-                        ? '#B91C1C'
-                        : isStop
-                        ? '#B45309'
-                        : poi.type === 'entrance'
-                        ? '#047857'
-                        : poi.type === 'exit'
-                        ? '#B91C1C'
-                        : poi.type === 'fire_exit'
-                        ? '#15803D'
-                        : poi.type === 'accessible_entrance'
-                        ? '#0284C7'
-                        : '#1A3C2B'
+                          ? '#B91C1C'
+                          : isStop
+                            ? '#B45309'
+                            : poi.type === 'entrance'
+                              ? '#047857'
+                              : poi.type === 'exit'
+                                ? '#B91C1C'
+                                : poi.type === 'fire_exit'
+                                  ? '#15803D'
+                                  : poi.type === 'accessible_entrance'
+                                    ? '#0284C7'
+                                    : '#1A3C2B'
                     }
                     strokeWidth={isSelected || isStart || isTarget || isStop ? 2.5 : 1.8}
                   />
@@ -3357,13 +3410,13 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                 const fromPos = isAllDragging
                   ? { x: fromNode.position.x + activeAllOffset.dx, y: fromNode.position.y + activeAllOffset.dy }
                   : activeDragNavNode && activeDragNavNode.nodeId === fromNode.id
-                  ? activeDragNavNode.position
-                  : fromNode.position;
+                    ? activeDragNavNode.position
+                    : fromNode.position;
                 const toPos = isAllDragging
                   ? { x: toNode.position.x + activeAllOffset.dx, y: toNode.position.y + activeAllOffset.dy }
                   : activeDragNavNode && activeDragNavNode.nodeId === toNode.id
-                  ? activeDragNavNode.position
-                  : toNode.position;
+                    ? activeDragNavNode.position
+                    : toNode.position;
 
                 return (
                   <line
@@ -3393,8 +3446,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                 const currentPos = isAllDragging
                   ? { x: node.position.x + activeAllOffset.dx, y: node.position.y + activeAllOffset.dy }
                   : activeDragNavNode && activeDragNavNode.nodeId === node.id
-                  ? activeDragNavNode.position
-                  : node.position;
+                    ? activeDragNavNode.position
+                    : node.position;
                 const isDraggable = isStudioMode && (activeTool === 'select' || activeTool === 'nav_node');
 
                 return (
@@ -3803,9 +3856,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                   />
                   {/* Live Dimension Tag */}
                   <g
-                    transform={`translate(${
-                      (drawingState.startPoint.x + drawingState.currentPoint.x) / 2
-                    }, ${(drawingState.startPoint.y + drawingState.currentPoint.y) / 2 - 14})`}
+                    transform={`translate(${(drawingState.startPoint.x + drawingState.currentPoint.x) / 2
+                      }, ${(drawingState.startPoint.y + drawingState.currentPoint.y) / 2 - 14})`}
                   >
                     <rect
                       x="-22"
@@ -3900,9 +3952,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
                     />
                     {/* Snapped Tooltip Tag */}
                     <g
-                      transform={`translate(${
-                        (aligned.start.x + aligned.end.x) / 2
-                      }, ${(aligned.start.y + aligned.end.y) / 2 - 14})`}
+                      transform={`translate(${(aligned.start.x + aligned.end.x) / 2
+                        }, ${(aligned.start.y + aligned.end.y) / 2 - 14})`}
                     >
                       <rect
                         x="-48"
@@ -3945,9 +3996,8 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
               <circle cx={measurePoints.end.x} cy={measurePoints.end.y} r="3" fill="#B91C1C" />
               {/* Measure Dimension Badge */}
               <g
-                transform={`translate(${
-                  (measurePoints.start.x + measurePoints.end.x) / 2
-                }, ${(measurePoints.start.y + measurePoints.end.y) / 2 - 12})`}
+                transform={`translate(${(measurePoints.start.x + measurePoints.end.x) / 2
+                  }, ${(measurePoints.start.y + measurePoints.end.y) / 2 - 12})`}
               >
                 <rect
                   x="-35"
@@ -4130,130 +4180,134 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
         </div>
       )}
 
-      {/* Wayfinder Action Context Popover */}
-      {wayfinderActionMenu && (
-        <div
-          className="fixed z-50 bg-[#FFFFFF] border border-[#1A3C2B] shadow-2xl p-2 font-mono text-xs flex flex-col gap-1 min-w-[190px] animate-in fade-in zoom-in-95 duration-100 no-print"
-          style={{
-            left: Math.min(window.innerWidth - 210, Math.max(10, wayfinderActionMenu.screenX)),
-            top: Math.min(window.innerHeight - 210, Math.max(10, wayfinderActionMenu.screenY)),
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="p-1 border-b border-[#1A3C2B]/20 font-bold text-[#1A3C2B] truncate text-[11px] flex items-center justify-between">
-            <span className="truncate">{wayfinderActionMenu.entityName}</span>
-            <button
-              onClick={() => setWayfinderActionMenu(null)}
-              className="text-[#1A3C2B]/50 hover:text-[#1A3C2B] text-xs px-1"
-            >
-              ✕
-            </button>
-          </div>
-
-          <button
-            onClick={() => {
-              if (onSetAsStartRoom) onSetAsStartRoom(wayfinderActionMenu.entityId);
-              setWayfinderActionMenu(null);
+      {/* Wayfinder Action Context Popover DISABLE*/}
+      {false && wayfinderActionMenu && (() => {
+        if (!wayfinderActionMenu) return null;
+        const menu = wayfinderActionMenu as NonNullable<typeof wayfinderActionMenu>;
+        return (
+          <div
+            className="fixed z-50 bg-[#FFFFFF] border border-[#1A3C2B] shadow-2xl p-2 font-mono text-xs flex flex-col gap-1 min-w-[190px] animate-in fade-in zoom-in-95 duration-100 no-print"
+            style={{
+              left: Math.min(window.innerWidth - 210, Math.max(10, menu.screenX)),
+              top: Math.min(window.innerHeight - 210, Math.max(10, menu.screenY)),
             }}
-            className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#047857] font-bold text-[10px] cursor-pointer"
+            onClick={(e) => e.stopPropagation()}
           >
-            <span className="w-2.5 h-2.5 rounded-full bg-[#047857]" />
-            <span>INDULÁSI PONT</span>
-          </button>
+            <div className="p-1 border-b border-[#1A3C2B]/20 font-bold text-[#1A3C2B] truncate text-[11px] flex items-center justify-between">
+              <span className="truncate">{menu.entityName}</span>
+              <button
+                onClick={() => setWayfinderActionMenu(null)}
+                className="text-[#1A3C2B]/50 hover:text-[#1A3C2B] text-xs px-1"
+              >
+                ✕
+              </button>
+            </div>
 
-          <button
-            onClick={() => {
-              if (onSetAsTargetRoom) onSetAsTargetRoom(wayfinderActionMenu.entityId);
-              setWayfinderActionMenu(null);
-            }}
-            className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#B91C1C] font-bold text-[10px] cursor-pointer"
-          >
-            <span className="w-2.5 h-2.5 bg-[#B91C1C] rotate-45" />
-            <span>CÉLÁLLOMÁS</span>
-          </button>
-
-          {onAddIntermediateStop && (
             <button
               onClick={() => {
-                onAddIntermediateStop(wayfinderActionMenu.entityId);
+                if (onSetAsStartRoom) onSetAsStartRoom(menu.entityId);
                 setWayfinderActionMenu(null);
               }}
-              className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#B45309] font-bold text-[10px] cursor-pointer"
+              className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#047857] font-bold text-[10px] cursor-pointer"
             >
-              <span className="w-2.5 h-2.5 rounded-xs bg-[#B45309]" />
-              <span>+ KÖZTES MEGÁLLÓ</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-[#047857]" />
+              <span>INDULÁSI PONT</span>
             </button>
-          )}
 
-          {isStudioMode && onSelectRoom && wayfinderActionMenu.entityType === 'room' && (() => {
-            const currentRoom = floor.rooms.find((r) => r.id === wayfinderActionMenu.entityId);
-            if (!currentRoom) return null;
-            return (
+            <button
+              onClick={() => {
+                if (onSetAsTargetRoom) onSetAsTargetRoom(menu.entityId);
+                setWayfinderActionMenu(null);
+              }}
+              className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#B91C1C] font-bold text-[10px] cursor-pointer"
+            >
+              <span className="w-2.5 h-2.5 bg-[#B91C1C] rotate-45" />
+              <span>CÉLÁLLOMÁS</span>
+            </button>
+
+            {onAddIntermediateStop && (
               <button
                 onClick={() => {
-                  onSelectRoom(currentRoom);
+                  onAddIntermediateStop?.(menu.entityId);
                   setWayfinderActionMenu(null);
                 }}
-                className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#1A3C2B] font-bold text-[10px] cursor-pointer"
+                className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#B45309] font-bold text-[10px] cursor-pointer"
               >
-                <span>⚙️</span>
-                <span>HELYISÉG TULAJDONSÁGOK</span>
+                <span className="w-2.5 h-2.5 rounded-xs bg-[#B45309]" />
+                <span>+ KÖZTES MEGÁLLÓ</span>
               </button>
-            );
-          })()}
+            )}
 
-          {isStudioMode && onDuplicateRoom && wayfinderActionMenu.entityType === 'room' && (() => {
-            const currentRoom = floor.rooms.find((r) => r.id === wayfinderActionMenu.entityId);
-            if (!currentRoom) return null;
-            return (
-              <button
-                onClick={() => {
-                  onDuplicateRoom(currentRoom);
-                  setWayfinderActionMenu(null);
-                }}
-                className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#1A3C2B] font-bold text-[10px] cursor-pointer border-t border-[#1A3C2B]/10"
-              >
-                <span>📋</span>
-                <span>TEREM MÁSOLÁSA (DUPLIKÁLÁS)</span>
-              </button>
-            );
-          })()}
+            {isStudioMode && onSelectRoom && menu.entityType === 'room' && (() => {
+              const currentRoom = floor.rooms.find((r) => r.id === menu.entityId);
+              if (!currentRoom) return null;
+              return (
+                <button
+                  onClick={() => {
+                    onSelectRoom?.(currentRoom!);
+                    setWayfinderActionMenu(null);
+                  }}
+                  className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#1A3C2B] font-bold text-[10px] cursor-pointer"
+                >
+                  <span>⚙️</span>
+                  <span>HELYISÉG TULAJDONSÁGOK</span>
+                </button>
+              );
+            })()}
 
-          {isStudioMode && onSelectZone && wayfinderActionMenu.entityType === 'zone' && (() => {
-            const currentZone = (floor.zones || []).find((z) => z.id === wayfinderActionMenu.entityId);
-            if (!currentZone) return null;
-            return (
-              <button
-                onClick={() => {
-                  onSelectZone(currentZone);
-                  setWayfinderActionMenu(null);
-                }}
-                className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#1A3C2B] font-bold text-[10px] cursor-pointer"
-              >
-                <span>🏢</span>
-                <span>ZÓNA TULAJDONSÁGOK</span>
-              </button>
-            );
-          })()}
+            {isStudioMode && onDuplicateRoom && menu.entityType === 'room' && (() => {
+              const currentRoom = floor.rooms.find((r) => r.id === menu.entityId);
+              if (!currentRoom) return null;
+              return (
+                <button
+                  onClick={() => {
+                    onDuplicateRoom?.(currentRoom!);
+                    setWayfinderActionMenu(null);
+                  }}
+                  className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#1A3C2B] font-bold text-[10px] cursor-pointer border-t border-[#1A3C2B]/10"
+                >
+                  <span>📋</span>
+                  <span>TEREM MÁSOLÁSA (DUPLIKÁLÁS)</span>
+                </button>
+              );
+            })()}
 
-          {isStudioMode && onDuplicateZone && wayfinderActionMenu.entityType === 'zone' && (() => {
-            const currentZone = (floor.zones || []).find((z) => z.id === wayfinderActionMenu.entityId);
-            if (!currentZone) return null;
-            return (
-              <button
-                onClick={() => {
-                  onDuplicateZone(currentZone);
-                  setWayfinderActionMenu(null);
-                }}
-                className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#1A3C2B] font-bold text-[10px] cursor-pointer border-t border-[#1A3C2B]/10"
-              >
-                <span>📋</span>
-                <span>ZÓNA DUPLIKÁLÁSA</span>
-              </button>
-            );
-          })()}
-        </div>
-      )}
+            {isStudioMode && onSelectZone && menu.entityType === 'zone' && (() => {
+              const currentZone = (floor.zones || []).find((z) => z.id === menu.entityId);
+              if (!currentZone) return null;
+              return (
+                <button
+                  onClick={() => {
+                    onSelectZone?.(currentZone!);
+                    setWayfinderActionMenu(null);
+                  }}
+                  className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#1A3C2B] font-bold text-[10px] cursor-pointer"
+                >
+                  <span>🏢</span>
+                  <span>ZÓNA TULAJDONSÁGOK</span>
+                </button>
+              );
+            })()}
+
+            {isStudioMode && onDuplicateZone && menu.entityType === 'zone' && (() => {
+              const currentZone = (floor.zones || []).find((z) => z.id === menu.entityId);
+              if (!currentZone) return null;
+              return (
+                <button
+                  onClick={() => {
+                    onDuplicateZone?.(currentZone!);
+                    setWayfinderActionMenu(null);
+                  }}
+                  className="px-2 py-1.5 hover:bg-[#F0F5F2] text-left flex items-center gap-2 text-[#1A3C2B] font-bold text-[10px] cursor-pointer border-t border-[#1A3C2B]/10"
+                >
+                  <span>📋</span>
+                  <span>ZÓNA DUPLIKÁLÁSA</span>
+                </button>
+              );
+            })()}
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -178,6 +178,43 @@ export const WayfinderPanel: React.FC<WayfinderPanelProps> = ({
           icon: transit.type === 'elevator' ? 'elevator' : 'stairs',
         });
       }
+
+      // 5. Special Building Doors (Entrances, Emergency Exits)
+      for (const door of floor.doors || []) {
+        if (
+          door.type === 'entrance' ||
+          door.type === 'fire_exit' ||
+          door.type === 'accessible_entrance' ||
+          door.type === 'exit' ||
+          (door.name && door.name.length > 0)
+        ) {
+          const typeName =
+            door.type === 'entrance'
+              ? 'Főbejárat'
+              : door.type === 'fire_exit'
+              ? 'Vészkijárat'
+              : door.type === 'accessible_entrance'
+              ? 'Akadálymentes Bejárat'
+              : door.type === 'exit'
+              ? 'Épület Kijárat'
+              : 'Ajtó Bejárat';
+          list.push({
+            id: door.id,
+            name: door.name || `${typeName} (${floor.shortCode})`,
+            code: typeName,
+            floor,
+            category: 'poi',
+            categoryLabel: 'Épület Bejárat / Vészkijárat',
+            subText: door.isExterior ? 'Épület külső bejárata' : undefined,
+            icon:
+              door.type === 'fire_exit'
+                ? 'fire_exit'
+                : door.type === 'accessible_entrance'
+                ? 'entrance'
+                : 'entrance',
+          });
+        }
+      }
     }
 
     return list;

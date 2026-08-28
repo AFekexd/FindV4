@@ -85,13 +85,25 @@ export interface Wall {
   isExterior?: boolean;
 }
 
+export type DoorType =
+  | 'single'
+  | 'double'
+  | 'sliding'
+  | 'security'
+  | 'entrance'
+  | 'exit'
+  | 'fire_exit'
+  | 'accessible_entrance';
+
 export interface Door {
   id: string;
   floorId: string;
   start: Point;
   end: Point;
-  type: 'single' | 'double' | 'sliding' | 'security';
+  type: DoorType;
+  name?: string;
   isOpen?: boolean;
+  isExterior?: boolean;
 }
 
 export interface TransitConnector {
@@ -290,6 +302,28 @@ export const TRANSIT_NAMES_HU: Record<TransitType, string> = {
   stairs: 'Lépcsőház',
   escalator: 'Mozgólépcső',
   ramp: 'Akadálymentes Rámpa',
+};
+
+export const DOOR_TYPES: DoorType[] = [
+  'entrance',
+  'fire_exit',
+  'accessible_entrance',
+  'exit',
+  'single',
+  'double',
+  'sliding',
+  'security',
+];
+
+export const DOOR_NAMES_HU: Record<DoorType, string> = {
+  entrance: 'Főbejárat / Épületbejárat',
+  fire_exit: 'Vészkijárat / Menekülési ajtó',
+  accessible_entrance: 'Akadálymentes Bejárat',
+  exit: 'Épület Kijárat',
+  single: 'Egyszárnyú Ajtó',
+  double: 'Kétszárnyú Ajtó',
+  sliding: 'Tolóajtó / Automata',
+  security: 'Beléptetős / Biztonsági Ajtó',
 };
 
 export const POI_NAMES_HU: Record<POIType, string> = {

@@ -5,6 +5,7 @@ import type {
   Floor,
   Room,
   Zone,
+  Door,
   TransitConnector,
   PointOfInterest,
   EditorTool,
@@ -45,6 +46,7 @@ import { RoomInspector } from './components/editor/RoomInspector';
 import { ZoneInspector } from './components/editor/ZoneInspector';
 import { TransitInspector } from './components/editor/TransitInspector';
 import { POIInspector } from './components/editor/POIInspector';
+import { DoorInspector } from './components/editor/DoorInspector';
 import { FloorManagerModal } from './components/editor/FloorManagerModal';
 import { CampusDirectoryModal } from './components/directory/CampusDirectoryModal';
 import { FloorStackSelector } from './components/common/FloorStackSelector';
@@ -226,6 +228,7 @@ export function App() {
   const [selectedZone, setSelectedZone] = useState<Zone | null>(null);
   const [selectedTransit, setSelectedTransit] = useState<TransitConnector | null>(null);
   const [selectedPOI, setSelectedPOI] = useState<PointOfInterest | null>(null);
+  const [selectedDoor, setSelectedDoor] = useState<Door | null>(null);
   const [isAllElementsSelected, setIsAllElementsSelected] = useState<boolean>(false);
 
   const [routePreferences, setRoutePreferences] = useState<RoutePreference>({
@@ -255,8 +258,10 @@ export function App() {
   const handleSelectFloor = (floorId: string) => {
     setActiveFloorId(floorId);
     setSelectedRoom(null);
+    setSelectedZone(null);
     setSelectedTransit(null);
     setSelectedPOI(null);
+    setSelectedDoor(null);
   };
 
   const handleSelectBuilding = (bldId: string) => {
@@ -1032,6 +1037,29 @@ export function App() {
                 onClose={() => setSelectedPOI(null)}
               />
             )}
+
+            {selectedDoor && (
+              <DoorInspector
+                door={selectedDoor}
+                onUpdate={(updated) => {
+                  handleUpdateFloor({
+                    ...activeFloor,
+                    doors: activeFloor.doors.map((d) =>
+                      d.id === updated.id ? updated : d
+                    ),
+                  });
+                  setSelectedDoor(updated);
+                }}
+                onDelete={(doorId) => {
+                  handleUpdateFloor({
+                    ...activeFloor,
+                    doors: activeFloor.doors.filter((d) => d.id !== doorId),
+                  });
+                  setSelectedDoor(null);
+                }}
+                onClose={() => setSelectedDoor(null)}
+              />
+            )}
           </aside>
         ) : appMode === 'wayfinder' ? (
           /* Wayfinder Mode Left Sidebar: Floor Elevation Stack */
@@ -1061,6 +1089,8 @@ export function App() {
                   setAppMode('studio');
                 }
               }}
+              onSetStartRoom={(roomId) => setStartRoomId(roomId)}
+              onSetTargetRoom={(roomId) => setTargetRoomId(roomId)}
             />
           ) : (
             <BlueprintCanvas
@@ -1073,6 +1103,7 @@ export function App() {
               selectedZoneId={selectedZone?.id}
               selectedTransitId={selectedTransit?.id}
               selectedPOIId={selectedPOI?.id}
+              selectedDoorId={selectedDoor?.id}
               startRoomId={startRoomId}
               targetRoomId={targetRoomId}
               intermediateStopIds={intermediateStopIds}
@@ -1086,6 +1117,7 @@ export function App() {
                   setSelectedZone(null);
                   setSelectedTransit(null);
                   setSelectedPOI(null);
+                  setSelectedDoor(null);
                 }
                 if (room && (appMode === 'wayfinder' || appMode === 'kiosk')) {
                   setIsRoomDetailOpen(true);
@@ -1099,6 +1131,7 @@ export function App() {
                   setSelectedRoom(null);
                   setSelectedTransit(null);
                   setSelectedPOI(null);
+                  setSelectedDoor(null);
                 }
               }}
               onSelectTransit={(transit) => {
@@ -1107,6 +1140,7 @@ export function App() {
                   setSelectedRoom(null);
                   setSelectedZone(null);
                   setSelectedPOI(null);
+                  setSelectedDoor(null);
                 }
               }}
               onSelectPOI={(poi) => {
@@ -1115,6 +1149,16 @@ export function App() {
                   setSelectedRoom(null);
                   setSelectedZone(null);
                   setSelectedTransit(null);
+                  setSelectedDoor(null);
+                }
+              }}
+              onSelectDoor={(door) => {
+                setSelectedDoor(door);
+                if (door) {
+                  setSelectedRoom(null);
+                  setSelectedZone(null);
+                  setSelectedTransit(null);
+                  setSelectedPOI(null);
                 }
               }}
               onSetAsStartRoom={(roomId) => setStartRoomId(roomId)}
