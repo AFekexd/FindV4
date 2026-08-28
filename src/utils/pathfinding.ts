@@ -546,7 +546,7 @@ export function buildNavGraph(
 
         const maxDist =
           nA.type === 'door' || nB.type === 'door' || nA.type === 'poi' || nB.type === 'poi' || nA.type === 'transit' || nB.type === 'transit'
-            ? 350
+            ? 380
             : 260;
 
         if (d <= maxDist) {
@@ -559,58 +559,97 @@ export function buildNavGraph(
         }
       }
     }
-  }
 
-  // 10. Cross-Floor Vertical Connections (Elevators & Stairs)
-  const transitGroupMap = new Map<
-    string,
-    {
-      connectorId: string;
-      floorId: string;
-      floorLevel: number;
-      navNodeId: string;
-      position: Point;
-      type: TransitType;
-      name: string;
-      isAccessible: boolean;
-    }[]
-  >();
+    // 9.5 Fallback connection: Guarantee every transit connector links to the nearest corridor node on its floor
+    const floorTransits = Array.from(graph.values()).filter((gn) => gn.floorId === floor.id && gn.type === 'transit');
+    const floorCorridors = Array.from(graph.values()).filter((gn) => gn.floorId === floor.id && gn.type !== 'room' && gn.type !== 'transit');
 
-  for (const floor of building.floors) {
-    for (const connector of floor.transitConnectors) {
-      if (!transitGroupMap.has(connector.transitGroupId)) {
-        transitGroupMap.set(connector.transitGroupId, []);
+    for (const tNode of floorTransits) {
+      if (tNode.neighbors.length === 0 && floorCorridors.length > 0) {
+        let nearest: GraphNode | null = null;
+        let minDist = Infinity;
+        for (const candidate of floorCorridors) {
+          const d = distance(tNode.position, candidate.position);
+          if (d < minDist) {
+            minDist = d;
+            nearest = candidate;
+          }
+        }
+        if (nearest) {
+          tNode.neighbors.push({ nodeId: nearest.id, weight: minDist, isAccessible: true });
+          nearest.neighbors.push({ nodeId: tNode.id, weight: minDist, isAccessible: true });
+        }
       }
-      const transitNodeId = connector.navNodeId || `transit-node-${connector.id}`;
-      transitGroupMap.get(connector.transitGroupId)!.push({
-        connectorId: connector.id,
-        floorId: floor.id,
-        floorLevel: floor.level,
-        navNodeId: transitNodeId,
-        position: connector.position,
-        type: connector.type,
-        name: connector.name,
-        isAccessible: connector.isAccessible,
-      });
     }
   }
 
-  for (const [, connectors] of transitGroupMap.entries()) {
-    for (let i = 0; i < connectors.length; i++) {
-      for (let j = i + 1; j < connectors.length; j++) {
-        const c1 = connectors[i];
-        const c2 = connectors[j];
+  // 10. Cross-Floor Vertical Connections (Elevators, Stairs, Escalators, Ramps)
+  const allTransitsAcrossFloors: {
+    connectorId: string;
+    floorId: string;
+    floorLevel: number;
+    graphNodeId: string;
+    position: Point;
+    type: TransitType;
+    name: string;
+    isAccessible: boolean;
+    transitGroupId: string;
+  }[] = [];
 
+  for (const floor of building.floors) {
+    for (const connector of floor.transitConnectors) {
+      const primaryNodeId = `transit-node-${connector.id}`;
+      const altNodeId = connector.navNodeId;
+      const targetNodeId = graph.has(primaryNodeId)
+        ? primaryNodeId
+        : altNodeId && graph.has(altNodeId)
+        ? altNodeId
+        : undefined;
+
+      if (targetNodeId) {
+        allTransitsAcrossFloors.push({
+          connectorId: connector.id,
+          floorId: floor.id,
+          floorLevel: floor.level,
+          graphNodeId: targetNodeId,
+          position: connector.position,
+          type: connector.type,
+          name: connector.name || (connector.type === 'elevator' ? 'Lift' : 'Lépcső'),
+          isAccessible: connector.isAccessible,
+          transitGroupId: connector.transitGroupId || '',
+        });
+      }
+    }
+  }
+
+  for (let i = 0; i < allTransitsAcrossFloors.length; i++) {
+    for (let j = i + 1; j < allTransitsAcrossFloors.length; j++) {
+      const c1 = allTransitsAcrossFloors[i];
+      const c2 = allTransitsAcrossFloors[j];
+
+      // Must be on different floors of the same building
+      if (c1.floorId === c2.floorId) continue;
+
+      // Check if they belong to the same vertical shaft/group:
+      const sameGroup = !!(c1.transitGroupId && c2.transitGroupId && c1.transitGroupId === c2.transitGroupId);
+      const sameType = c1.type === c2.type;
+      const sameName = !!(c1.name && c2.name && c1.name.trim().toLowerCase() === c2.name.trim().toLowerCase());
+      const closePosition = distance(c1.position, c2.position) < 180; // Within ~9 meters 2D distance
+
+      const isSameShaft = sameGroup || (sameType && (sameName || closePosition));
+
+      if (isSameShaft) {
         if (preferences.accessibilityOnly && (!c1.isAccessible || !c2.isAccessible)) {
           continue;
         }
 
-        const node1 = graph.get(c1.navNodeId);
-        const node2 = graph.get(c2.navNodeId);
+        const node1 = graph.get(c1.graphNodeId);
+        const node2 = graph.get(c2.graphNodeId);
 
         if (node1 && node2) {
           const levelDiff = Math.abs(c1.floorLevel - c2.floorLevel);
           let verticalPenalty = levelDiff * 60;
+
           if (c1.type === 'elevator') {
             if (preferences.prioritizeElevators) {
               verticalPenalty = levelDiff * 25;

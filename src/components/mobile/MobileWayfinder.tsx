@@ -58,6 +58,39 @@ export const MobileWayfinder: React.FC<MobileWayfinderProps> = ({
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
+  const panRef = useRef(pan);
+  panRef.current = pan;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
+  // Native wheel zooming for smooth desktop / touchpad interaction
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+
+    const handleWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const zoomFactor = e.deltaY < 0 ? 1.18 : 0.85;
+
+      const currentZoom = zoomRef.current;
+      const currentPan = panRef.current;
+      const newZ = Math.min(10.0, Math.max(0.3, currentZoom * zoomFactor));
+      const contentX = (cx - currentPan.x) / currentZoom;
+      const contentY = (cy - currentPan.y) / currentZoom;
+
+      setZoom(newZ);
+      setPan({ x: cx - contentX * newZ, y: cy - contentY * newZ });
+    };
+
+    container.addEventListener('wheel', handleWheelNative, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheelNative);
+    };
+  }, []);
+
   // Detect landscape / low-height orientation
   const [isLandscape, setIsLandscape] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -248,13 +281,18 @@ export const MobileWayfinder: React.FC<MobileWayfinderProps> = ({
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 1) {
-      touchStartRef.current = { x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y };
+      touchStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        startPanX: pan.x,
+        startPanY: pan.y,
+        dist: undefined,
+      };
     } else if (e.touches.length === 2) {
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      // Midpoint of the two fingers relative to the container
       const container = mapContainerRef.current;
       const rect = container?.getBoundingClientRect();
       const containerX = rect ? rect.left : 0;
@@ -263,8 +301,8 @@ export const MobileWayfinder: React.FC<MobileWayfinderProps> = ({
       const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - containerY;
 
       touchStartRef.current = {
-        x: pan.x,
-        y: pan.y,
+        x: 0,
+        y: 0,
         dist,
         midX,
         midY,
@@ -277,43 +315,57 @@ export const MobileWayfinder: React.FC<MobileWayfinderProps> = ({
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (e.touches.length === 1 && touchStartRef.current.dist === undefined) {
-      const rawDx = e.touches[0].clientX - touchStartRef.current.x - pan.x;
-      const rawDy = e.touches[0].clientY - touchStartRef.current.y - pan.y;
+      const rawDx = e.touches[0].clientX - touchStartRef.current.x;
+      const rawDy = e.touches[0].clientY - touchStartRef.current.y;
       const rotated = rotateToMapSpace(rawDx, rawDy);
       setPan({
-        x: pan.x + rotated.dx,
-        y: pan.y + rotated.dy,
+        x: (touchStartRef.current.startPanX ?? pan.x) + rotated.dx,
+        y: (touchStartRef.current.startPanY ?? pan.y) + rotated.dy,
       });
-      // Update start ref so next frame is relative
-      touchStartRef.current.x = e.touches[0].clientX - pan.x - rotated.dx;
-      touchStartRef.current.y = e.touches[0].clientY - pan.y - rotated.dy;
     } else if (e.touches.length === 2 && touchStartRef.current.dist) {
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
+      if (dist === 0) return;
       const scaleFactor = dist / touchStartRef.current.dist;
       const oldZoom = touchStartRef.current.startZoom || 1;
-      const newZoom = Math.min(3.5, Math.max(0.6, oldZoom * scaleFactor));
+      const newZoom = Math.min(10.0, Math.max(0.3, oldZoom * scaleFactor));
 
-      // Anchor point: the original pinch midpoint relative to container
+      const container = mapContainerRef.current;
+      const rect = container?.getBoundingClientRect();
+      const containerX = rect ? rect.left : 0;
+      const containerY = rect ? rect.top : 0;
+
+      const currentMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - containerX;
+      const currentMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - containerY;
+
       const anchorX = touchStartRef.current.midX || 0;
       const anchorY = touchStartRef.current.midY || 0;
       const startPanX = touchStartRef.current.startPanX || 0;
       const startPanY = touchStartRef.current.startPanY || 0;
 
-      // The point under the fingers in "content space" must remain fixed.
-      // Content position = (screenPos - pan) / zoom
-      // To keep it fixed: newPan = screenPos - contentPos * newZoom
-      // contentPos = (anchorX - startPanX) / oldZoom
-      // newPanX = anchorX - contentPos * newZoom
       const contentX = (anchorX - startPanX) / oldZoom;
       const contentY = (anchorY - startPanY) / oldZoom;
-      const newPanX = anchorX - contentX * newZoom;
-      const newPanY = anchorY - contentY * newZoom;
+      const newPanX = currentMidX - contentX * newZoom;
+      const newPanY = currentMidY - contentY * newZoom;
 
       setZoom(newZoom);
       setPan({ x: newPanX, y: newPanY });
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        startPanX: pan.x,
+        startPanY: pan.y,
+        dist: undefined,
+      };
+    } else if (e.touches.length === 0) {
+      touchStartRef.current = { x: 0, y: 0, dist: undefined };
     }
   };
 
@@ -444,6 +496,8 @@ export const MobileWayfinder: React.FC<MobileWayfinderProps> = ({
         ref={mapContainerRef}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
         className="relative flex-1 w-full h-full bg-[#EFEFEA] overflow-hidden touch-none"
       >
         {/* Floor Level Floating Quick Tabs (Positioned smartly) */}
@@ -482,12 +536,12 @@ export const MobileWayfinder: React.FC<MobileWayfinderProps> = ({
           <button
             onClick={() => {
               const container = mapContainerRef.current;
-              if (!container) { setZoom((z) => Math.min(3.5, z * 1.25)); return; }
+              if (!container) { setZoom((z) => Math.min(10.0, z * 1.3)); return; }
               const rect = container.getBoundingClientRect();
               const cx = rect.width / 2;
               const cy = rect.height / 2;
               setZoom((prevZ) => {
-                const newZ = Math.min(3.5, prevZ * 1.25);
+                const newZ = Math.min(10.0, prevZ * 1.3);
                 const contentX = (cx - pan.x) / prevZ;
                 const contentY = (cy - pan.y) / prevZ;
                 setPan({ x: cx - contentX * newZ, y: cy - contentY * newZ });
@@ -502,12 +556,12 @@ export const MobileWayfinder: React.FC<MobileWayfinderProps> = ({
           <button
             onClick={() => {
               const container = mapContainerRef.current;
-              if (!container) { setZoom((z) => Math.max(0.5, z * 0.8)); return; }
+              if (!container) { setZoom((z) => Math.max(0.3, z * 0.77)); return; }
               const rect = container.getBoundingClientRect();
               const cx = rect.width / 2;
               const cy = rect.height / 2;
               setZoom((prevZ) => {
-                const newZ = Math.max(0.5, prevZ * 0.8);
+                const newZ = Math.max(0.3, prevZ * 0.77);
                 const contentX = (cx - pan.x) / prevZ;
                 const contentY = (cy - pan.y) / prevZ;
                 setPan({ x: cx - contentX * newZ, y: cy - contentY * newZ });
@@ -578,10 +632,11 @@ export const MobileWayfinder: React.FC<MobileWayfinderProps> = ({
         >
           {/* Pan/Zoom Transform Wrapper */}
           <div
-            className="w-full h-full flex items-center justify-center transition-transform duration-75"
+            className="w-full h-full flex items-center justify-center"
             style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transform: `translate3d(${pan.x}px, ${pan.y}px, 0px) scale(${zoom})`,
               transformOrigin: '0 0',
+              willChange: 'transform',
             }}
           >
           <svg

@@ -157,11 +157,13 @@ export function App() {
   });
   const [activeRouteStep, setActiveRouteStep] = useState<RouteStep | null>(null);
 
-  // 4. Undo / Redo History Stack for CAD Studio
+  // 4. Undo / Redo History Stack & Clipboard State for CAD Studio
   const [undoStack, setUndoStack] = useState<Floor[]>([]);
   const [redoStack, setRedoStack] = useState<Floor[]>([]);
-  const [copiedRoom, setCopiedRoom] = useState<Room | null>(null);
-  const [copiedZone, setCopiedZone] = useState<Zone | null>(null);
+  const [clipboard, setClipboard] = useState<{
+    type: 'room' | 'zone' | 'poi' | 'transit' | 'door';
+    data: any;
+  } | null>(null);
 
   // Supabase Cloud Sync State
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
@@ -543,7 +545,7 @@ export function App() {
   };
 
   // Duplicate Room Handler
-  const handleDuplicateRoom = (roomToDuplicate: Room) => {
+  const handleDuplicateRoom = useCallback((roomToDuplicate: Room) => {
     if (!activeFloor) return;
 
     if (!isEditorAllowed) {
@@ -599,10 +601,11 @@ export function App() {
     setSelectedZone(null);
     setSelectedTransit(null);
     setSelectedPOI(null);
-  };
+    setSelectedDoor(null);
+  }, [activeFloor, isEditorAllowed]);
 
   // Duplicate Zone Handler
-  const handleDuplicateZone = (zoneToDuplicate: Zone) => {
+  const handleDuplicateZone = useCallback((zoneToDuplicate: Zone) => {
     if (!activeFloor) return;
 
     if (!isEditorAllowed) {
@@ -636,7 +639,89 @@ export function App() {
     setSelectedRoom(null);
     setSelectedTransit(null);
     setSelectedPOI(null);
-  };
+    setSelectedDoor(null);
+  }, [activeFloor, isEditorAllowed]);
+
+  // Duplicate POI Handler
+  const handleDuplicatePOI = useCallback((poiToDuplicate: PointOfInterest) => {
+    if (!activeFloor) return;
+    const offset = { x: 30, y: 30 };
+    const timestamp = Date.now();
+    const newPoi: PointOfInterest = {
+      ...poiToDuplicate,
+      id: `poi-${timestamp}`,
+      position: {
+        x: poiToDuplicate.position.x + offset.x,
+        y: poiToDuplicate.position.y + offset.y,
+      },
+      name: poiToDuplicate.name ? `${poiToDuplicate.name} (Másolat)` : 'POI (Másolat)',
+    };
+    handleUpdateFloor({
+      ...activeFloor,
+      pois: [...activeFloor.pois, newPoi],
+    });
+    setSelectedPOI(newPoi);
+    setSelectedRoom(null);
+    setSelectedZone(null);
+    setSelectedTransit(null);
+    setSelectedDoor(null);
+  }, [activeFloor]);
+
+  // Duplicate Transit Handler
+  const handleDuplicateTransit = useCallback((transitToDuplicate: TransitConnector) => {
+    if (!activeFloor) return;
+    const offset = { x: 30, y: 30 };
+    const timestamp = Date.now();
+    const newTransit: TransitConnector = {
+      ...transitToDuplicate,
+      id: `transit-${timestamp}`,
+      position: {
+        x: transitToDuplicate.position.x + offset.x,
+        y: transitToDuplicate.position.y + offset.y,
+      },
+    };
+    handleUpdateFloor({
+      ...activeFloor,
+      transitConnectors: [...activeFloor.transitConnectors, newTransit],
+    });
+    setSelectedTransit(newTransit);
+    setSelectedRoom(null);
+    setSelectedZone(null);
+    setSelectedPOI(null);
+    setSelectedDoor(null);
+  }, [activeFloor]);
+
+  // Duplicate Door Handler
+  const handleDuplicateDoor = useCallback((doorToDuplicate: Door) => {
+    if (!activeFloor) return;
+    const offset = { x: 30, y: 30 };
+    const timestamp = Date.now();
+    const newDoor: Door = {
+      ...doorToDuplicate,
+      id: `door-${timestamp}`,
+      start: { x: doorToDuplicate.start.x + offset.x, y: doorToDuplicate.start.y + offset.y },
+      end: { x: doorToDuplicate.end.x + offset.x, y: doorToDuplicate.end.y + offset.y },
+    };
+    handleUpdateFloor({
+      ...activeFloor,
+      doors: [...activeFloor.doors, newDoor],
+    });
+    setSelectedDoor(newDoor);
+    setSelectedRoom(null);
+    setSelectedZone(null);
+    setSelectedTransit(null);
+    setSelectedPOI(null);
+  }, [activeFloor]);
+
+  // Paste Handler for Ctrl+V
+  const handlePaste = useCallback(() => {
+    if (!clipboard || !activeFloor) return;
+    if (clipboard.type === 'room') handleDuplicateRoom(clipboard.data);
+    else if (clipboard.type === 'zone') handleDuplicateZone(clipboard.data);
+    else if (clipboard.type === 'poi') handleDuplicatePOI(clipboard.data);
+    else if (clipboard.type === 'transit') handleDuplicateTransit(clipboard.data);
+    else if (clipboard.type === 'door') handleDuplicateDoor(clipboard.data);
+  }, [clipboard, activeFloor, handleDuplicateRoom, handleDuplicateZone, handleDuplicatePOI, handleDuplicateTransit, handleDuplicateDoor]);
 
   // Keyboard shortcut listener (Ctrl+Z, Ctrl+Y, Ctrl+D, Ctrl+C, Ctrl+V, etc.)
   useEffect(() => {
@@ -644,7 +729,7 @@ export function App() {
       const target = e.target as HTMLElement;
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         if (e.shiftKey) {
           e.preventDefault();
           handleRedo();
@@ -652,29 +737,44 @@ export function App() {
           e.preventDefault();
           handleUndo();
         }
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         handleRedo();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsDirectoryOpen((prev) => !prev);
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
-        if (selectedRoom && appMode === 'studio' && !isInput) {
+        if (appMode === 'studio' && !isInput) {
           e.preventDefault();
-          handleDuplicateRoom(selectedRoom);
-        } else if (selectedZone && appMode === 'studio' && !isInput) {
-          e.preventDefault();
-          handleDuplicateZone(selectedZone);
+          if (selectedRoom) handleDuplicateRoom(selectedRoom);
+          else if (selectedZone) handleDuplicateZone(selectedZone);
+          else if (selectedPOI) handleDuplicatePOI(selectedPOI);
+          else if (selectedTransit) handleDuplicateTransit(selectedTransit);
+          else if (selectedDoor) handleDuplicateDoor(selectedDoor);
         }
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
-        if (selectedRoom && appMode === 'studio' && !isInput) {
+        if (appMode === 'studio' && !isInput) {
+          if (selectedRoom) {
+            e.preventDefault();
+            setClipboard({ type: 'room', data: selectedRoom });
+          } else if (selectedZone) {
+            e.preventDefault();
+            setClipboard({ type: 'zone', data: selectedZone });
+          } else if (selectedPOI) {
+            e.preventDefault();
+            setClipboard({ type: 'poi', data: selectedPOI });
+          } else if (selectedTransit) {
+            e.preventDefault();
+            setClipboard({ type: 'transit', data: selectedTransit });
+          } else if (selectedDoor) {
+            e.preventDefault();
+            setClipboard({ type: 'door', data: selectedDoor });
+          }
+        }
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
+        if (appMode === 'studio' && !isInput && clipboard) {
           e.preventDefault();
-          setCopiedRoom(selectedRoom);
-          setCopiedZone(null);
-        } else if (selectedZone && appMode === 'studio' && !isInput) {
-          e.preventDefault();
-          setCopiedZone(selectedZone);
-          setCopiedRoom(null);
+          handlePaste();
         }
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
         if (appMode === 'studio' && !isInput) {
@@ -684,6 +784,7 @@ export function App() {
           setSelectedZone(null);
           setSelectedTransit(null);
           setSelectedPOI(null);
+          setSelectedDoor(null);
         }
       } else if (e.key === 'Escape') {
         setIsAllElementsSelected(false);
@@ -691,7 +792,24 @@ export function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undoStack, redoStack, activeFloor, activeInstitution, activeBuilding, selectedRoom, selectedZone, copiedRoom, copiedZone, appMode, isEditorAllowed]);
+  }, [
+    undoStack,
+    redoStack,
+    activeFloor,
+    selectedRoom,
+    selectedZone,
+    selectedPOI,
+    selectedTransit,
+    selectedDoor,
+    clipboard,
+    appMode,
+    handleDuplicateRoom,
+    handleDuplicateZone,
+    handleDuplicatePOI,
+    handleDuplicateTransit,
+    handleDuplicateDoor,
+    handlePaste,
+  ]);
 
 
   // Smart NavMesh Generator for current floor
@@ -949,7 +1067,7 @@ export function App() {
             {/* Inspector Panels */}
             {selectedRoom && (
               <RoomInspector
-                room={selectedRoom}
+                room={activeFloor.rooms.find((r) => r.id === selectedRoom.id) || selectedRoom}
                 onUpdate={(updated) => {
                   handleUpdateFloor({
                     ...activeFloor,
@@ -971,7 +1089,7 @@ export function App() {
 
             {selectedZone && (
               <ZoneInspector
-                zone={selectedZone}
+                zone={(activeFloor.zones || []).find((z) => z.id === selectedZone.id) || selectedZone}
                 onUpdate={(updated) => {
                   handleUpdateFloor({
                     ...activeFloor,

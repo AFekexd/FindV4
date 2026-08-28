@@ -43,7 +43,7 @@ export const ZoneInspector: React.FC<ZoneInspectorProps> = ({
 
   useEffect(() => {
     setFormData(zone);
-  }, [zone.id]);
+  }, [zone]);
 
   const area = polygonAreaInSquareMeters(formData.polygon);
   const perimeter = polygonPerimeterInMeters(formData.polygon);

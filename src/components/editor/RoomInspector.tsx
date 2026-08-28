@@ -44,10 +44,10 @@ export const RoomInspector: React.FC<RoomInspectorProps> = ({
   const [formData, setFormData] = useState<Room>(room);
   const updateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Synchronize local form data if selected room changes
+  // Synchronize local form data if selected room changes or polygon is edited on canvas
   useEffect(() => {
     setFormData(room);
-  }, [room.id]);
+  }, [room]);
 
   const categories: RoomCategory[] = [
     'classroom',

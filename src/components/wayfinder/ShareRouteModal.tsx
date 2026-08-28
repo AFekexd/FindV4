@@ -35,7 +35,8 @@ export const ShareRouteModal: React.FC<ShareRouteModalProps> = ({
   onOpenMobileView,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [includeRouteStepsInPrint, setIncludeRouteStepsInPrint] = useState<boolean>(true);
+  const [copiesPerPage, setCopiesPerPage] = useState<1 | 2 | 4>(1);
 
   if (!isOpen) return null;
 
@@ -82,83 +83,200 @@ export const ShareRouteModal: React.FC<ShareRouteModalProps> = ({
     window.print();
   };
 
+  // Helper renderers for Printable Cards
+  const renderFrontCardContent = (qrSize: number = 180, isCompact: boolean = false) => (
+    <div className={`w-full border-2 border-black flex flex-col items-center bg-white text-black font-sans box-border ${isCompact ? 'p-2 gap-1.5' : 'p-4 gap-3'}`}>
+      {/* Header */}
+      <div className="border-b border-black pb-1 w-full text-center">
+        <span className="font-mono text-[8px] font-black tracking-widest uppercase block text-black">
+          POLLÁK // MOBIL NAVIGÁCIÓ
+        </span>
+        <span className={`${isCompact ? 'text-[11px]' : 'text-xs'} font-bold text-gray-900 truncate block`}>
+          {building.name}
+        </span>
+      </div>
+
+      {/* Start & Destination Box */}
+      <div className="w-full flex flex-col gap-1 text-left font-mono border border-black p-1.5 text-xs">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-black px-1 py-0.2 border border-black text-[8px] uppercase flex-shrink-0">
+            START
+          </span>
+          <span className="font-bold text-[10px] text-black truncate">
+            {startRoom ? `${startRoom.name} (${startRoom.code})` : 'Kiindulási helyiség'}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-center text-gray-500 my-0 leading-none">
+          <span className="text-[9px]">↓</span>
+        </div>
+
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-black px-1 py-0.2 bg-black text-white text-[8px] uppercase flex-shrink-0">
+            CÉL
+          </span>
+          <span className="font-bold text-[10px] text-black truncate">
+            {targetRoom ? `${targetRoom.name} (${targetRoom.code})` : 'Célállomás'}
+          </span>
+        </div>
+      </div>
+
+      {/* High-Resolution QR Code */}
+      <div className="p-1 border border-black bg-white flex items-center justify-center my-0.5">
+        <QRCodeSVG
+          value={shareUrl}
+          size={qrSize}
+          level="M"
+          fgColor="#000000"
+          bgColor="#FFFFFF"
+        />
+      </div>
+
+      {/* Instruction */}
+      <div className="flex flex-col items-center gap-0.5 text-center leading-tight">
+        <span className="font-bold text-[9px] uppercase tracking-wide">
+          Olvassa be telefonjával az útvonalhoz!
+        </span>
+      </div>
+
+      {/* Telemetry Footer */}
+      {routeResult && (
+        <div className="border-t border-black/30 pt-1 w-full flex items-center justify-between font-mono text-[8px] text-gray-700">
+          <span>Táv: <b>{routeResult.totalDistanceMeters} m</b></span>
+          <span>Idő: <b>~{routeResult.estimatedTimeMinutes} p</b></span>
+          <span>Szintek: <b>{routeResult.floorsTraversed.length}</b></span>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderBackCardContent = (isCompact: boolean = false) => (
+    <div className={`w-full border-2 border-black flex flex-col items-center bg-white text-black font-sans box-border ${isCompact ? 'p-2 gap-1.5' : 'p-4 gap-2.5'}`}>
+      {/* Header */}
+      <div className="border-b border-black pb-1 w-full text-center">
+        <span className="font-mono text-[8px] font-black tracking-widest uppercase block text-gray-600">
+          {building.name} • HÁTLAP (ÚTVONAL)
+        </span>
+        <span className={`${isCompact ? 'text-[11px]' : 'text-xs'} font-black uppercase tracking-wider block text-black`}>
+          LÉPÉSRŐL-LÉPÉSRE ÚTVONALÚTMUTATÓ
+        </span>
+      </div>
+
+      {/* Route Summary */}
+      {routeResult && (
+        <div className="w-full bg-gray-100 border border-black p-1 flex items-center justify-between text-[8px] font-mono">
+          <span className="font-bold text-[10px] text-black truncate">
+            {startRoom ? startRoom.code || startRoom.name : 'Start'} ➔ {targetRoom ? targetRoom.code || targetRoom.name : 'Cél'}
+          </span>
+          <span className="font-mono font-bold text-[8px] px-1 py-0.2 border border-black bg-black text-white flex-shrink-0 ml-1">
+            {routeResult.steps.length} LÉPÉS
+          </span>
+        </div>
+      )}
+
+      {/* Turn-by-Turn Instruction Steps */}
+      {routeResult && (
+        <div className="w-full flex flex-col gap-0.5 text-left font-mono">
+          {routeResult.steps.slice(0, isCompact ? 5 : 12).map((step, idx) => (
+            <div key={idx} className="flex items-start gap-1 p-0.5 border border-black/40 bg-white text-[9px]">
+              <span className="font-black text-[8px] px-1 py-0.1 border border-black bg-black text-white flex-shrink-0">
+                {idx + 1}.
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-bold text-[9px] text-black leading-tight truncate">
+                    {step.instruction}
+                  </span>
+                  <span className="font-bold text-[7px] px-1 bg-gray-100 border border-black flex-shrink-0">
+                    {step.floorShortCode}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+          {isCompact && routeResult.steps.length > 5 && (
+            <span className="text-[7.5px] text-center font-bold text-gray-600 block mt-0.5">
+              + további {routeResult.steps.length - 5} lépés a mobil kijelzőjén...
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="border-t border-black/30 pt-1 w-full flex items-center justify-between font-mono text-[8px] text-gray-600">
+        <span>FindV4 Navigáció</span>
+        <span>2-oldalas kártya</span>
+      </div>
+    </div>
+  );
+
   return (
     <>
       {/* 1. DEDICATED INK-SAVING MINIMAL PRINT SHEET (@media print only) */}
-      <div className="printable-qr-target hidden flex-col items-center justify-center text-center bg-white text-black p-8 font-sans">
-        <div className="w-full max-w-md border-2 border-black p-8 flex flex-col items-center gap-5">
-          {/* Header */}
-          <div className="border-b-2 border-black pb-3 w-full text-center">
-            <span className="font-mono text-xs font-black tracking-widest uppercase block">
-              POLLÁK // MOBIL NAVIGÁCIÓ
-            </span>
-            <span className="text-sm font-bold text-gray-800">{building.name}</span>
-          </div>
-
-          {/* Route Endpoints Box (Minimal, Ink-Friendly) */}
-          <div className="w-full flex flex-col gap-2 text-left font-mono border border-black p-3.5 text-xs">
-            {/* Start Station */}
-            <div className="flex items-start gap-2">
-              <span className="font-black px-1.5 py-0.5 border border-black text-[10px] uppercase">
-                START
-              </span>
-              <div className="flex flex-col">
-                <span className="font-bold text-sm">
-                  {startRoom ? `${startRoom.name} (${startRoom.code})` : 'Kiindulási helyiség'}
+      <div className="printable-qr-target hidden bg-white text-black font-sans">
+        {/* PAGE 1: FRONT SIDE - QR CODE & DESTINATION DESIGN */}
+        <div className="print-page">
+          {copiesPerPage === 1 ? (
+            <div className="w-full max-w-md">
+              {renderFrontCardContent(180, false)}
+            </div>
+          ) : copiesPerPage === 2 ? (
+            <div className="w-full max-w-md flex flex-col items-center gap-3">
+              {renderFrontCardContent(120, true)}
+              <div className="w-full border-b border-dashed border-black my-0.5 flex items-center justify-center">
+                <span className="bg-white px-2 font-mono text-[8px] text-gray-600">
+                  ✂ ------------------- VÁGÁSI VONAL (A5 KÁRTYÁK) ------------------- ✂
                 </span>
-                <span className="text-gray-600 text-[10px]">{startFloorName}</span>
               </div>
+              {renderFrontCardContent(120, true)}
             </div>
-
-            {/* Down Arrow */}
-            <div className="flex items-center justify-center my-0.5 text-gray-500">
-              <span className="text-xs">↓</span>
-            </div>
-
-            {/* Destination Station */}
-            <div className="flex items-start gap-2">
-              <span className="font-black px-1.5 py-0.5 bg-black text-white text-[10px] uppercase">
-                CÉL
-              </span>
-              <div className="flex flex-col">
-                <span className="font-bold text-sm">
-                  {targetRoom ? `${targetRoom.name} (${targetRoom.code})` : 'Célállomás'}
+          ) : (
+            <div className="w-full max-w-lg grid grid-cols-2 gap-2 items-center">
+              {renderFrontCardContent(85, true)}
+              {renderFrontCardContent(85, true)}
+              <div className="col-span-2 border-b border-dashed border-black my-0.5 flex items-center justify-center">
+                <span className="bg-white px-2 font-mono text-[8px] text-gray-600">
+                  ✂ ------------------- VÁGÁSI VONAL (A6 KÁRTYÁK) ------------------- ✂
                 </span>
-                <span className="text-gray-600 text-[10px]">{targetFloorName}</span>
               </div>
-            </div>
-          </div>
-
-          {/* High-Resolution QR Code */}
-          <div className="p-3 border border-black bg-white flex items-center justify-center my-2">
-            <QRCodeSVG
-              value={shareUrl}
-              size={240}
-              level="H"
-              fgColor="#000000"
-              bgColor="#FFFFFF"
-            />
-          </div>
-
-          {/* Instruction */}
-          <div className="flex flex-col items-center gap-1">
-            <span className="font-bold text-xs uppercase tracking-wide">
-              Olvassa be telefonjával az azonnali navigációhoz!
-            </span>
-            <span className="text-[10px] text-gray-600">
-              Kamerával beolvasva azonnal megnyílik a lépésről-lépésre útvonalterv.
-            </span>
-          </div>
-
-          {/* Telemetry Footer */}
-          {routeResult && (
-            <div className="border-t border-black/30 pt-2 w-full flex items-center justify-between font-mono text-[10px] text-gray-700">
-              <span>Távolság: <b>{routeResult.totalDistanceMeters} m</b></span>
-              <span>Menetidő: <b>~{routeResult.estimatedTimeMinutes} perc</b></span>
-              <span>Érintett szintek: <b>{routeResult.floorsTraversed.length} db</b></span>
+              {renderFrontCardContent(85, true)}
+              {renderFrontCardContent(85, true)}
             </div>
           )}
         </div>
+
+        {/* PAGE 2: BACK SIDE - TURN-BY-TURN ROUTE INSTRUCTIONS */}
+        {includeRouteStepsInPrint && routeResult && routeResult.steps.length > 0 && (
+          <div className="print-page">
+            {copiesPerPage === 1 ? (
+              <div className="w-full max-w-md">
+                {renderBackCardContent(false)}
+              </div>
+            ) : copiesPerPage === 2 ? (
+              <div className="w-full max-w-md flex flex-col items-center gap-3">
+                {renderBackCardContent(true)}
+                <div className="w-full border-b border-dashed border-black my-0.5 flex items-center justify-center">
+                  <span className="bg-white px-2 font-mono text-[8px] text-gray-600">
+                    ✂ ------------------- VÁGÁSI VONAL (A5 KÁRTYÁK) ------------------- ✂
+                  </span>
+                </div>
+                {renderBackCardContent(true)}
+              </div>
+            ) : (
+              <div className="w-full max-w-lg grid grid-cols-2 gap-2 items-center">
+                {renderBackCardContent(true)}
+                {renderBackCardContent(true)}
+                <div className="col-span-2 border-b border-dashed border-black my-0.5 flex items-center justify-center">
+                  <span className="bg-white px-2 font-mono text-[8px] text-gray-600">
+                    ✂ ------------------- VÁGÁSI VONAL (A6 KÁRTYÁK) ------------------- ✂
+                  </span>
+                </div>
+                {renderBackCardContent(true)}
+                {renderBackCardContent(true)}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 2. ON-SCREEN MODAL DIALOG */}
@@ -257,22 +375,69 @@ export const ShareRouteModal: React.FC<ShareRouteModalProps> = ({
               </div>
             </div>
 
-            {/* Route Summary Telemetry */}
-            {routeResult && (
-              <div className="bg-[#FFFFFF] border border-[#D0D0C7] p-2.5 flex items-center justify-between text-xs font-mono">
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-[#1A3C2B]/60 uppercase">TÁVOLSÁG</span>
-                  <span className="font-bold text-[#1A3C2B]">{routeResult.totalDistanceMeters} méter</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-[#1A3C2B]/60 uppercase">MENETIDŐ</span>
-                  <span className="font-bold text-[#1A3C2B]">~{routeResult.estimatedTimeMinutes} perc</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-[#1A3C2B]/60 uppercase">SZINTEK</span>
-                  <span className="font-bold text-[#1A3C2B]">{routeResult.floorsTraversed.length} szint</span>
-                </div>
+            {/* A4 Page Layout & Copies selector */}
+            <div className="bg-white border border-[#1A3C2B] p-2.5 flex flex-col gap-2 font-mono text-xs select-none">
+              <span className="font-bold text-[#1A3C2B] uppercase text-[10px] tracking-wider block">
+                📄 A4 PAPÍR ELRENDEZÉS & PÉLDÁNYSZÁM (PAPÍRTAKARÉKOS)
+              </span>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCopiesPerPage(1)}
+                  className={`py-1.5 px-2 border text-[10px] font-bold transition-all flex flex-col items-center gap-0.5 ${
+                    copiesPerPage === 1
+                      ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
+                      : 'bg-white text-[#1A3C2B] border-[#1A3C2B]/30 hover:bg-[#F0F5F2]'
+                  }`}
+                >
+                  <span>1 DB / A4</span>
+                  <span className="text-[8px] opacity-75">Teljes méret</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCopiesPerPage(2)}
+                  className={`py-1.5 px-2 border text-[10px] font-bold transition-all flex flex-col items-center gap-0.5 ${
+                    copiesPerPage === 2
+                      ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
+                      : 'bg-white text-[#1A3C2B] border-[#1A3C2B]/30 hover:bg-[#F0F5F2]'
+                  }`}
+                >
+                  <span>2 DB / A4</span>
+                  <span className="text-[8px] opacity-75">A5 méret (Fél lap)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCopiesPerPage(4)}
+                  className={`py-1.5 px-2 border text-[10px] font-bold transition-all flex flex-col items-center gap-0.5 ${
+                    copiesPerPage === 4
+                      ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
+                      : 'bg-white text-[#1A3C2B] border-[#1A3C2B]/30 hover:bg-[#F0F5F2]'
+                  }`}
+                >
+                  <span>4 DB / A4</span>
+                  <span className="text-[8px] opacity-75">A6 méret (Negyed lap)</span>
+                </button>
               </div>
+            </div>
+
+            {/* 2-Page Print Option Toggle */}
+            {routeResult && routeResult.steps.length > 0 && (
+              <label className="flex items-start gap-2.5 cursor-pointer bg-white border border-[#1A3C2B] p-2.5 font-mono text-xs hover:bg-[#F0F5F2] transition-colors select-none">
+                <input
+                  type="checkbox"
+                  checked={includeRouteStepsInPrint}
+                  onChange={(e) => setIncludeRouteStepsInPrint(e.target.checked)}
+                  className="mt-0.5 accent-[#1A3C2B] w-4 h-4 cursor-pointer"
+                />
+                <div className="flex flex-col">
+                  <span className="font-bold text-[#1A3C2B]">
+                    Útvonalutasítások nyomtatása a 2. oldalra (2 oldalas)
+                  </span>
+                  <span className="text-[9px] text-[#1A3C2B]/70 leading-tight mt-0.5">
+                    1. oldal (előlap): QR kód & Célállomás design • 2. oldal (hátlap): Szöveges útvonalutasítások
+                  </span>
+                </div>
+              </label>
             )}
 
             {/* Footer Actions */}
@@ -280,14 +445,16 @@ export const ShareRouteModal: React.FC<ShareRouteModalProps> = ({
               <button
                 onClick={handlePrint}
                 className="px-3.5 py-1.5 bg-[#1A3C2B] text-white hover:bg-[#2A533E] font-mono text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
-                title="Nyomtató- és papírbarát QR lap nyomtatása"
+                title="Nyomtató- és papírbarát QR + Útvonal lap nyomtatása"
               >
                 <Printer className="w-3.5 h-3.5 text-emerald-300" />
-                <span>PAPÍRBARÁT NYOMTATÁS</span>
+                <span>
+                  NYOMTATÁS ({copiesPerPage} DB / LAP • {includeRouteStepsInPrint && routeResult?.steps.length ? '2 OLDALAS' : '1 OLDALAS'})
+                </span>
               </button>
               <button
                 onClick={onClose}
-                className="px-4 py-1.5 bg-white border border-[#1A3C2B] text-[#1A3C2B] hover:bg-[#EFEFEA] font-mono text-xs font-bold"
+                className="px-4 py-1.5 bg-[#F7F7F5] hover:bg-[#EFEFEA] border border-[#1A3C2B] text-[#1A3C2B] font-mono text-xs font-bold"
               >
                 BEZÁRÁS
               </button>
