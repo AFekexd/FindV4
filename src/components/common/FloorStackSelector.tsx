@@ -17,8 +17,13 @@ export const FloorStackSelector: React.FC<FloorStackSelectorProps> = ({
   onSelectFloor,
   className = '',
 }) => {
-  // Sort floors from highest level to lowest level (architectural stack order)
-  const sortedFloors = [...building.floors].sort((a, b) => b.level - a.level);
+  // Sort floors from highest elevation/level to lowest (architectural stack order: top floor to ground/basement)
+  const sortedFloors = [...building.floors].sort((a, b) => {
+    const elevA = a.elevationMeters ?? a.level ?? 0;
+    const elevB = b.elevationMeters ?? b.level ?? 0;
+    if (elevB !== elevA) return elevB - elevA;
+    return (b.level ?? 0) - (a.level ?? 0);
+  });
 
   return (
     <div

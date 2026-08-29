@@ -71,6 +71,7 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
 
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
   const [editFloorName, setEditFloorName] = useState('');
+  const [editFloorLevel, setEditFloorLevel] = useState('');
   const [editFloorShortCode, setEditFloorShortCode] = useState('');
   const [editFloorElevation, setEditFloorElevation] = useState('');
 
@@ -312,8 +313,9 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
                     return {
                       ...f,
                       name: editFloorName.trim() || f.name,
+                      level: editFloorLevel.trim() !== '' ? (parseInt(editFloorLevel) || 0) : f.level,
                       shortCode: editFloorShortCode.trim() || f.shortCode,
-                      elevationMeters: parseFloat(editFloorElevation) || f.elevationMeters,
+                      elevationMeters: editFloorElevation.trim() !== '' ? (parseFloat(editFloorElevation) || 0) : f.elevationMeters,
                     };
                   }
                   return f;
@@ -744,7 +746,14 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
 
               {/* Floors Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                {currentBld.floors.map((floor) => {
+                {[...currentBld.floors]
+                  .sort((a, b) => {
+                    const elevA = a.elevationMeters ?? a.level ?? 0;
+                    const elevB = b.elevationMeters ?? b.level ?? 0;
+                    if (elevB !== elevA) return elevB - elevA;
+                    return (b.level ?? 0) - (a.level ?? 0);
+                  })
+                  .map((floor) => {
                   const isActive = floor.id === activeFloorId;
                   const isEditing = editingFloorId === floor.id;
 
@@ -759,7 +768,15 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
                           placeholder="Szint neve"
                           className="border border-[#1A3C2B] px-1.5 py-0.5 text-xs"
                         />
-                        <div className="grid grid-cols-2 gap-1">
+                        <div className="grid grid-cols-3 gap-1">
+                          <input
+                            type="text"
+                            value={editFloorLevel}
+                            onChange={(e) => setEditFloorLevel(e.target.value)}
+                            placeholder="Szint #"
+                            className="border border-[#D0D0C7] px-1.5 py-0.5 text-xs"
+                            title="Szint sorszáma"
+                          />
                           <input
                             type="text"
                             value={editFloorShortCode}
@@ -812,6 +829,7 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
                                 e.stopPropagation();
                                 setEditingFloorId(floor.id);
                                 setEditFloorName(floor.name);
+                                setEditFloorLevel(floor.level.toString());
                                 setEditFloorShortCode(floor.shortCode);
                                 setEditFloorElevation(floor.elevationMeters.toString());
                               }}

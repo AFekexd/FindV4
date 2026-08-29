@@ -137,9 +137,14 @@ export const Isometric3DView: React.FC<Isometric3DViewProps> = ({
   const floorGroupsRef = useRef<Map<string, THREE.Group>>(new Map());
   const routeGroupRef = useRef<THREE.Group | null>(null);
 
-  // Sorted floors (bottom level 0 to top level N)
+  // Sorted floors (bottom ground level 0 to top level N)
   const sortedFloors = useMemo(() => {
-    return [...building.floors].sort((a, b) => a.level - b.level);
+    return [...building.floors].sort((a, b) => {
+      const elevA = a.elevationMeters ?? a.level ?? 0;
+      const elevB = b.elevationMeters ?? b.level ?? 0;
+      if (elevA !== elevB) return elevA - elevB;
+      return (a.level ?? 0) - (b.level ?? 0);
+    });
   }, [building]);
 
   // Center offset calculations so building is centered at (0, 0, 0)
@@ -273,10 +278,10 @@ export const Isometric3DView: React.FC<Isometric3DViewProps> = ({
     const halfW = buildingDimensions.width / 2;
     const halfH = buildingDimensions.height / 2;
 
-    sortedFloors.forEach((floor) => {
+    sortedFloors.forEach((floor, index) => {
       const floorGroup = new THREE.Group();
       floorGroup.name = `floor-${floor.id}`;
-      const targetElevation = floor.level * (isExploded ? floorSpacing * 1.7 : floorSpacing);
+      const targetElevation = index * (isExploded ? floorSpacing * 1.7 : floorSpacing);
       floorGroup.position.y = targetElevation;
       floorGroupsRef.current.set(floor.id, floorGroup);
 
@@ -540,9 +545,9 @@ export const Isometric3DView: React.FC<Isometric3DViewProps> = ({
 
     const points3D: THREE.Vector3[] = [];
     routeResult.pathNodes.forEach((node) => {
-      const targetFloor = sortedFloors.find((f) => f.id === node.floorId);
-      const level = targetFloor ? targetFloor.level : 0;
-      const yElev = level * (isExploded ? floorSpacing * 1.7 : floorSpacing) + wallHeight + 16;
+      const floorIdx = sortedFloors.findIndex((f) => f.id === node.floorId);
+      const targetIndex = floorIdx >= 0 ? floorIdx : 0;
+      const yElev = targetIndex * (isExploded ? floorSpacing * 1.7 : floorSpacing) + wallHeight + 16;
       const x = node.position.x - halfW;
       const z = node.position.y - halfH;
       points3D.push(new THREE.Vector3(x, yElev, z));
@@ -880,7 +885,7 @@ export const Isometric3DView: React.FC<Isometric3DViewProps> = ({
           SZINT KIVÁLASZTÁSA & 2D UGRÁS
         </span>
         <div className="flex flex-col gap-1 mt-1 max-h-40 overflow-y-auto">
-          {sortedFloors.map((floor) => {
+          {[...sortedFloors].reverse().map((floor) => {
             const isActive = floor.id === activeFloorId;
             const isTraversed = routeResult?.floorsTraversed.includes(floor.id);
             return (

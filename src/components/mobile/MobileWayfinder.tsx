@@ -506,7 +506,14 @@ export const MobileWayfinder: React.FC<MobileWayfinderProps> = ({
             isLandscape ? 'top-12 left-2' : 'top-2.5 left-2.5'
           }`}
         >
-          {building.floors.map((floor) => {
+          {[...building.floors]
+            .sort((a, b) => {
+              const elevA = a.elevationMeters ?? a.level ?? 0;
+              const elevB = b.elevationMeters ?? b.level ?? 0;
+              if (elevA !== elevB) return elevA - elevB;
+              return (a.level ?? 0) - (b.level ?? 0);
+            })
+            .map((floor) => {
             const isActive = floor.id === activeFloor.id;
             const isTraversed = routeResult?.floorsTraversed.includes(floor.id);
             return (

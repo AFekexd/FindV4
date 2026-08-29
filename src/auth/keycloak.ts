@@ -16,7 +16,24 @@ export interface UserProfile {
   name?: string;
   email?: string;
   roles?: string[];
+  realmRoles?: string[];
   isAdmin?: boolean;
+  isTeacher?: boolean;
+  activeRoleBadge?: string;
+}
+
+export const ALLOWED_REALM_ROLES = ['ADMIN', 'TEACHER'] as const;
+
+/**
+ * Validates if the user's Keycloak token possesses the required ADMIN or TEACHER Realm role.
+ */
+export function hasRequiredRealmRole(tokenParsed: any): boolean {
+  if (!tokenParsed) return false;
+  const realmRoles: string[] = tokenParsed.realm_access?.roles || [];
+  return realmRoles.some((role) => {
+    const upper = String(role).trim().toUpperCase();
+    return upper === 'ADMIN' || upper === 'TEACHER';
+  });
 }
 
 const STORAGE_KEY_TOKEN = 'pollak_find_kc_token';
@@ -53,12 +70,13 @@ export function clearStoredTokens() {
 
 /**
  * Initializes Keycloak with token persistence & PKCE.
+ * - Enforces ADMIN and TEACHER Realm roles!
  * - Does NOT redirect guest / mobile visitors!
  * - Persists session across page refreshes and browser tabs!
  */
 export async function initKeycloak(): Promise<boolean> {
   if (isInitialized) {
-    return keycloak.authenticated || false;
+    return (keycloak.authenticated && hasRequiredRealmRole(keycloak.tokenParsed)) || false;
   }
 
   const savedToken = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_TOKEN) : null;
@@ -82,15 +100,26 @@ export async function initKeycloak(): Promise<boolean> {
     });
 
     if (authenticated) {
-      persistTokens();
+      if (hasRequiredRealmRole(keycloak.tokenParsed)) {
+        persistTokens();
+        isInitialized = true;
+        return true;
+      } else {
+        console.warn('[Keycloak] Bejelentkezés elutasítva: A felhasználó nem rendelkezik ADMIN vagy TEACHER Realm role-lal.');
+        clearStoredTokens();
+        isInitialized = true;
+        return false;
+      }
     } else if (!isOAuthCallback && savedRefreshToken) {
       // Try refreshing with stored refresh token
       try {
         const refreshed = await keycloak.updateToken(70);
-        if (refreshed || keycloak.authenticated) {
+        if ((refreshed || keycloak.authenticated) && hasRequiredRealmRole(keycloak.tokenParsed)) {
           persistTokens();
           isInitialized = true;
           return true;
+        } else {
+          clearStoredTokens();
         }
       } catch {
         clearStoredTokens();
@@ -98,7 +127,7 @@ export async function initKeycloak(): Promise<boolean> {
     }
 
     isInitialized = true;
-    return authenticated || false;
+    return false;
   } catch (error) {
     console.warn('[Keycloak] Inicializációs figyelmeztetés:', error);
     clearStoredTokens();
@@ -127,7 +156,7 @@ export function logoutKeycloak(): Promise<void> {
 }
 
 /**
- * Extract User Profile Info
+ * Extract User Profile Info only if having required ADMIN or TEACHER Realm role
  */
 export function getUserProfile(): UserProfile | null {
   if (!keycloak.authenticated || !keycloak.tokenParsed) {
@@ -135,9 +164,18 @@ export function getUserProfile(): UserProfile | null {
   }
 
   const parsed = keycloak.tokenParsed as any;
-  const realmRoles = parsed.realm_access?.roles || [];
-  const resourceRoles = parsed.resource_access?.[keycloakConfig.clientId]?.roles || [];
+  const realmRoles: string[] = parsed.realm_access?.roles || [];
+  const resourceRoles: string[] = parsed.resource_access?.[keycloakConfig.clientId]?.roles || [];
   const allRoles = [...realmRoles, ...resourceRoles];
+
+  if (!hasRequiredRealmRole(parsed)) {
+    return null;
+  }
+
+  const upperRealmRoles = realmRoles.map((r) => String(r).trim().toUpperCase());
+  const isAdmin = upperRealmRoles.includes('ADMIN');
+  const isTeacher = upperRealmRoles.includes('TEACHER');
+  const activeRoleBadge = isAdmin ? 'ADMIN' : isTeacher ? 'TEACHER' : undefined;
 
   return {
     id: parsed.sub,
@@ -145,6 +183,9 @@ export function getUserProfile(): UserProfile | null {
     name: parsed.name || parsed.preferred_username || 'Pollák Felhasználó',
     email: parsed.email,
     roles: allRoles,
-    isAdmin: allRoles.includes('admin') || allRoles.includes('editor') || allRoles.includes('realm-admin'),
+    realmRoles,
+    isAdmin,
+    isTeacher,
+    activeRoleBadge,
   };
 }

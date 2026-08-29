@@ -6,6 +6,7 @@ import {
   getUserProfile,
   persistTokens,
   clearStoredTokens,
+  hasRequiredRealmRole,
   keycloak,
   UserProfile,
 } from './keycloak';
@@ -14,8 +15,10 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isInitialized: boolean;
   user: UserProfile | null;
+  authError: string | null;
   login: (redirectUri?: string) => void;
   logout: () => void;
+  clearAuthError: () => void;
   token?: string;
 }
 
@@ -23,34 +26,50 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   isInitialized: false,
   user: null,
+  authError: null,
   login: () => {},
   logout: () => {},
+  clearAuthError: () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const validateAndSyncState = (authenticated: boolean) => {
+    if (authenticated && keycloak.authenticated && keycloak.tokenParsed) {
+      if (hasRequiredRealmRole(keycloak.tokenParsed)) {
+        persistTokens();
+        setIsAuthenticated(true);
+        setUser(getUserProfile());
+        setAuthError(null);
+      } else {
+        console.warn('[Keycloak] Hozzáférés megtagadva: Hiányzó ADMIN vagy TEACHER Realm role.');
+        clearStoredTokens();
+        setIsAuthenticated(false);
+        setUser(null);
+        setAuthError('Hozzáférés megtagadva: Csak ADMIN vagy TEACHER Realm jogosultsággal (role) rendelkező fiókok jelentkezhetnek be!');
+      }
+    } else {
+      setIsAuthenticated(false);
+      setUser(null);
+    }
+  };
 
   useEffect(() => {
     initKeycloak().then((authenticated) => {
-      setIsAuthenticated(authenticated);
-      if (authenticated) {
-        setUser(getUserProfile());
-      }
+      validateAndSyncState(authenticated);
       setIsInitialized(true);
     });
 
     keycloak.onAuthSuccess = () => {
-      persistTokens();
-      setIsAuthenticated(true);
-      setUser(getUserProfile());
+      validateAndSyncState(true);
     };
 
     keycloak.onAuthRefreshSuccess = () => {
-      persistTokens();
-      setIsAuthenticated(true);
-      setUser(getUserProfile());
+      validateAndSyncState(true);
     };
 
     keycloak.onAuthLogout = () => {
@@ -65,9 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .updateToken(60)
         .then((refreshed) => {
           if (refreshed) {
-            persistTokens();
-            setIsAuthenticated(true);
-            setUser(getUserProfile());
+            validateAndSyncState(true);
           }
         })
         .catch(() => {
@@ -79,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Background silent token renewal check every 30 seconds
     const intervalId = setInterval(() => {
-      if (keycloak.authenticated) {
+      if (keycloak.authenticated && hasRequiredRealmRole(keycloak.tokenParsed)) {
         keycloak
           .updateToken(60)
           .then((refreshed) => {
@@ -99,12 +116,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = (redirectUri?: string) => {
+    setAuthError(null);
     loginKeycloak(redirectUri);
   };
 
   const logout = () => {
+    setAuthError(null);
     clearStoredTokens();
     logoutKeycloak();
+  };
+
+  const clearAuthError = () => {
+    setAuthError(null);
   };
 
   return (
@@ -113,8 +136,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated,
         isInitialized,
         user,
+        authError,
         login,
         logout,
+        clearAuthError,
         token: keycloak.token,
       }}
     >

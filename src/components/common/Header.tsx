@@ -179,7 +179,14 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Floor Level Quick Pills */}
           <div className="flex items-center border border-[#1A3C2B] bg-[#F7F7F5] p-0.5">
-            {activeBuilding.floors.map((floor) => {
+            {[...activeBuilding.floors]
+              .sort((a, b) => {
+                const elevA = a.elevationMeters ?? a.level ?? 0;
+                const elevB = b.elevationMeters ?? b.level ?? 0;
+                if (elevA !== elevB) return elevA - elevB;
+                return (a.level ?? 0) - (b.level ?? 0);
+              })
+              .map((floor) => {
               const isActive = floor.id === activeFloor.id;
               return (
                 <button
@@ -322,6 +329,11 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-bold text-[11px] max-w-[100px] truncate" title={user.name}>
                 {user.username}
               </span>
+              {user.activeRoleBadge && (
+                <span className="text-[9px] font-bold px-1 py-0.2 bg-[#1A3C2B] text-white">
+                  {user.activeRoleBadge}
+                </span>
+              )}
               <button
                 onClick={onLogout}
                 className="p-0.5 hover:text-red-700 ml-1 transition-colors"

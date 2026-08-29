@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lock, ShieldCheck, UserCheck, X, ArrowRight, ExternalLink } from 'lucide-react';
+import { Lock, ShieldCheck, UserCheck, X, ArrowRight, AlertTriangle } from 'lucide-react';
 import { keycloakConfig } from '../../auth/keycloak';
 
 interface AuthRequiredModalProps {
@@ -8,6 +8,7 @@ interface AuthRequiredModalProps {
   onLogin: () => void;
   onBypassDemo?: () => void;
   actionTitle?: string;
+  authError?: string | null;
 }
 
 export const AuthRequiredModal: React.FC<AuthRequiredModalProps> = ({
@@ -16,6 +17,7 @@ export const AuthRequiredModal: React.FC<AuthRequiredModalProps> = ({
   onLogin,
   onBypassDemo,
   actionTitle = 'CAD Stúdió & Alaprajz Szerkesztés',
+  authError,
 }) => {
   if (!isOpen) return null;
 
@@ -36,6 +38,16 @@ export const AuthRequiredModal: React.FC<AuthRequiredModalProps> = ({
         </div>
 
         <div className="p-5 flex flex-col gap-4 font-sans text-xs text-[#1A3C2B]">
+          {authError && (
+            <div className="bg-red-50 border-2 border-red-600 text-red-900 p-3 flex items-start gap-2.5 animate-in fade-in">
+              <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <strong className="block text-xs font-bold text-red-950 mb-0.5">BEJELENTKEZÉS ELUTASÍTVA</strong>
+                <p className="text-[11px] leading-tight text-red-800">{authError}</p>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-start gap-3 bg-white p-3.5 border border-[#1A3C2B]/30">
             <ShieldCheck className="w-6 h-6 text-[#1A3C2B] flex-shrink-0 mt-0.5" />
             <div>
@@ -43,7 +55,7 @@ export const AuthRequiredModal: React.FC<AuthRequiredModalProps> = ({
                 {actionTitle}
               </h4>
               <p className="text-[#1A3C2B]/75 leading-relaxed">
-                Az alaprajzok megtekintése, a 3D nézet és az útvonaltervező nyilvánosan elérhető, azonban az épületek, szintek és helyiségek szerkesztéséhez bejelentkezés szükséges a <b>Pollák Keycloak</b> fiókkal.
+                Az alaprajzok szerkesztéséhez és kezeléséhez bejelentkezés szükséges. A hozzáférés kizárólag <b>ADMIN</b> vagy <b>TEACHER</b> Realm szerepkörrel rendelkező fiókok számára engedélyezett.
               </p>
             </div>
           </div>
@@ -53,9 +65,13 @@ export const AuthRequiredModal: React.FC<AuthRequiredModalProps> = ({
               <span>KEYCLOAK SZERVER:</span>
               <span className="font-bold">{keycloakConfig.url}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between mb-0.5">
               <span>REALM / KLIENS:</span>
               <span className="font-bold">{keycloakConfig.realm} / {keycloakConfig.clientId}</span>
+            </div>
+            <div className="flex justify-between text-emerald-800 font-bold border-t border-[#D0D0C7] pt-1 mt-1">
+              <span>ENGEDÉLYEZETT SZEREPKÖRÖK:</span>
+              <span>ADMIN, TEACHER</span>
             </div>
           </div>
 

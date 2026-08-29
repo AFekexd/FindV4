@@ -67,10 +67,16 @@ import {
 
 export function App() {
   // 1. Auth State (Keycloak)
-  const { isAuthenticated, user, login, logout } = useAuth();
+  const { isAuthenticated, user, login, logout, authError, clearAuthError } = useAuth();
   const [isDemoEditor, setIsDemoEditor] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [authModalTitle, setAuthModalTitle] = useState<string>('CAD Stúdió & Szerkesztés');
+
+  useEffect(() => {
+    if (authError) {
+      setIsAuthModalOpen(true);
+    }
+  }, [authError]);
 
   const isEditorAllowed = isAuthenticated || isDemoEditor;
 
@@ -1411,7 +1417,11 @@ export function App() {
 
       <AuthRequiredModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          clearAuthError();
+        }}
+        authError={authError}
         actionTitle={authModalTitle}
         onLogin={() => {
           setIsAuthModalOpen(false);
@@ -1420,6 +1430,7 @@ export function App() {
         onBypassDemo={() => {
           setIsDemoEditor(true);
           setIsAuthModalOpen(false);
+          clearAuthError();
         }}
       />
 
