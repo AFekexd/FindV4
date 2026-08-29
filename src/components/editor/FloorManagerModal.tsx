@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { Institution, Building, Floor } from '../../types';
+import { duplicateFloor, cloneFloorData } from '../../utils/floorClone';
 import {
   Building as BuildingIcon,
   Plus,
@@ -13,6 +14,7 @@ import {
   X,
   ArrowUp,
   ArrowDown,
+  Copy,
 } from 'lucide-react';
 
 interface FloorManagerModalProps {
@@ -57,6 +59,7 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
   const [newFloorLevel, setNewFloorLevel] = useState('3');
   const [newFloorShortCode, setNewFloorShortCode] = useState('L3');
   const [newFloorElevation, setNewFloorElevation] = useState('11.4');
+  const [newFloorTemplateId, setNewFloorTemplateId] = useState<string>('empty');
   const [showAddFloor, setShowAddFloor] = useState(false);
 
   // States for In-Place Editing / Renaming
@@ -259,23 +262,40 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
   // Add Floor
   const handleAddFloor = () => {
     if (!newFloorName.trim() || !currentBld) return;
-    const newFloor: Floor = {
-      id: `floor-${Date.now()}`,
-      buildingId: currentBld.id,
-      level: parseInt(newFloorLevel) || 0,
-      name: newFloorName,
-      shortCode: newFloorShortCode || `${newFloorLevel}.SZ`,
-      elevationMeters: parseFloat(newFloorElevation) || 0,
-      width: 1000,
-      height: 720,
-      rooms: [],
-      walls: [],
-      doors: [],
-      transitConnectors: [],
-      pois: [],
-      navNodes: [],
-      navEdges: [],
-    };
+    const newFloorId = `floor-${Date.now()}`;
+    const templateFloor = currentBld.floors.find((f) => f.id === newFloorTemplateId);
+
+    let newFloor: Floor;
+    if (templateFloor) {
+      const cloned = cloneFloorData(templateFloor, newFloorId);
+      newFloor = {
+        id: newFloorId,
+        buildingId: currentBld.id,
+        level: parseInt(newFloorLevel) || 0,
+        name: newFloorName,
+        shortCode: newFloorShortCode || `${newFloorLevel}.SZ`,
+        elevationMeters: parseFloat(newFloorElevation) || 0,
+        ...cloned,
+      };
+    } else {
+      newFloor = {
+        id: newFloorId,
+        buildingId: currentBld.id,
+        level: parseInt(newFloorLevel) || 0,
+        name: newFloorName,
+        shortCode: newFloorShortCode || `${newFloorLevel}.SZ`,
+        elevationMeters: parseFloat(newFloorElevation) || 0,
+        width: 1000,
+        height: 720,
+        rooms: [],
+        walls: [],
+        doors: [],
+        transitConnectors: [],
+        pois: [],
+        navNodes: [],
+        navEdges: [],
+      };
+    }
 
     const updated = institutions.map((inst) => {
       if (inst.id === currentInst?.id) {
@@ -296,6 +316,43 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
     onSelectFloor(newFloor.id);
     setShowAddFloor(false);
     setNewFloorName('');
+    setNewFloorTemplateId('empty');
+  };
+
+  // Duplicate Existing Floor Directly
+  const handleDuplicateFloor = (sourceFloor: Floor, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentBld) return;
+    const maxLevel = Math.max(...currentBld.floors.map((f) => f.level), 0);
+    const maxElevation = Math.max(...currentBld.floors.map((f) => f.elevationMeters), 0);
+    const nextLevel = sourceFloor.level >= maxLevel ? maxLevel + 1 : sourceFloor.level + 1;
+    const nextElevation = sourceFloor.elevationMeters >= maxElevation ? maxElevation + 3.5 : sourceFloor.elevationMeters + 3.5;
+
+    const duplicated = duplicateFloor(sourceFloor, {
+      buildingId: currentBld.id,
+      name: `${sourceFloor.name} (Másolat)`,
+      level: nextLevel,
+      shortCode: `${nextLevel}.SZ`,
+      elevationMeters: parseFloat(nextElevation.toFixed(1)),
+    });
+
+    const updated = institutions.map((inst) => {
+      if (inst.id === currentInst?.id) {
+        return {
+          ...inst,
+          buildings: inst.buildings.map((bld) => {
+            if (bld.id === currentBld.id) {
+              return { ...bld, floors: [...bld.floors, duplicated] };
+            }
+            return bld;
+          }),
+        };
+      }
+      return inst;
+    });
+
+    onUpdateInstitutions(updated);
+    onSelectFloor(duplicated.id);
   };
 
   // Save Edited Floor
@@ -711,35 +768,79 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
 
               {/* Add Floor Form */}
               {showAddFloor && (
-                <div className="p-3 bg-white border border-[#1A3C2B] grid grid-cols-4 gap-2">
-                  <input
-                    type="text"
-                    placeholder="Szint megnevezése"
-                    value={newFloorName}
-                    onChange={(e) => setNewFloorName(e.target.value)}
-                    className="bg-[#F7F7F5] border border-[#D0D0C7] px-2 py-1 text-xs col-span-2"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Szint száma (pl. 3)"
-                    value={newFloorLevel}
-                    onChange={(e) => setNewFloorLevel(e.target.value)}
-                    className="bg-[#F7F7F5] border border-[#D0D0C7] px-2 py-1 text-xs"
-                  />
-                  <div className="flex items-center gap-2">
+                <div className="p-3 bg-white border-2 border-[#1A3C2B] flex flex-col gap-2 animate-in fade-in">
+                  <div className="flex items-center justify-between border-b border-[#1A3C2B]/20 pb-1">
+                    <span className="font-mono text-[10px] font-bold uppercase text-[#1A3C2B]">ÚJ SZINT LÉTREHOZÁSA</span>
+                    <span className="text-[10px] font-mono text-[#1A3C2B]/60">Másolhat egy meglévő szintet vagy kezdhet üreset</span>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Szint megnevezése (pl. 2. Emelet)"
+                      value={newFloorName}
+                      onChange={(e) => setNewFloorName(e.target.value)}
+                      className="bg-[#F7F7F5] border border-[#D0D0C7] px-2 py-1 text-xs col-span-2"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Szint száma (pl. 2)"
+                      value={newFloorLevel}
+                      onChange={(e) => setNewFloorLevel(e.target.value)}
+                      className="bg-[#F7F7F5] border border-[#D0D0C7] px-2 py-1 text-xs"
+                    />
                     <input
                       type="text"
                       placeholder="Magasság (m)"
                       value={newFloorElevation}
                       onChange={(e) => setNewFloorElevation(e.target.value)}
-                      className="w-full bg-[#F7F7F5] border border-[#D0D0C7] px-2 py-1 text-xs"
+                      className="bg-[#F7F7F5] border border-[#D0D0C7] px-2 py-1 text-xs"
                     />
-                    <button
-                      onClick={handleAddFloor}
-                      className="px-3 py-1 bg-[#1A3C2B] text-white text-xs font-bold font-mono"
-                    >
-                      MENTÉS
-                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 items-center bg-[#F7F7F5] p-2 border border-[#D0D0C7]">
+                    <div className="col-span-2 flex items-center gap-2">
+                      <span className="text-[10px] font-mono font-bold text-[#1A3C2B] flex-shrink-0">
+                        SZERKEZET MÁSOLÁSA:
+                      </span>
+                      <select
+                        value={newFloorTemplateId}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setNewFloorTemplateId(val);
+                          if (val !== 'empty') {
+                            const src = currentBld.floors.find((f) => f.id === val);
+                            if (src && !newFloorName) {
+                              setNewFloorName(`${src.name} (Új szint)`);
+                            }
+                          }
+                        }}
+                        className="w-full bg-white border border-[#1A3C2B] px-2 py-1 text-xs font-mono cursor-pointer"
+                      >
+                        <option value="empty">Tiszta új szint (Üres kezdés)</option>
+                        {currentBld.floors.map((fl) => (
+                          <option key={fl.id} value={fl.id}>
+                            Másolás innen: {fl.name} (+{fl.elevationMeters}m • {fl.rooms.length} terem)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddFloor(false)}
+                        className="px-3 py-1 border border-[#D0D0C7] bg-white text-xs font-mono"
+                      >
+                        Mégse
+                      </button>
+                      <button
+                        onClick={handleAddFloor}
+                        className="px-4 py-1 bg-[#1A3C2B] text-white text-xs font-bold font-mono hover:bg-[#2A533E]"
+                      >
+                        SZINT LÉTREHOZÁSA
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -825,6 +926,15 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
                           <span className="font-mono text-xs font-bold px-1 bg-[#1A3C2B]/20">{floor.shortCode}</span>
                           <div className="flex items-center gap-1">
                             <button
+                              onClick={(e) => handleDuplicateFloor(floor, e)}
+                              className={`p-0.5 border text-[9px] ${
+                                isActive ? 'border-white/40 text-white hover:bg-white/20' : 'border-[#1A3C2B]/30 text-[#1A3C2B] hover:bg-[#F0F5F2]'
+                              }`}
+                              title="Szint duplikálása új szintként (Másolás)"
+                            >
+                              <Copy className="w-2.5 h-2.5" />
+                            </button>
+                            <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setEditingFloorId(floor.id);
@@ -834,7 +944,7 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
                                 setEditFloorElevation(floor.elevationMeters.toString());
                               }}
                               className={`p-0.5 border text-[9px] ${
-                                isActive ? 'border-white/40 text-white hover:bg-white/20' : 'border-[#1A3C2B]/30 text-[#1A3C2B]'
+                                isActive ? 'border-white/40 text-white hover:bg-white/20' : 'border-[#1A3C2B]/30 text-[#1A3C2B] hover:bg-[#F0F5F2]'
                               }`}
                               title="Szint átnevezése"
                             >
@@ -843,7 +953,7 @@ export const FloorManagerModal: React.FC<FloorManagerModalProps> = ({
                             <button
                               onClick={(e) => handleDeleteFloor(floor.id, e)}
                               className={`p-0.5 border text-[9px] ${
-                                isActive ? 'border-white/40 text-white hover:bg-red-900/60' : 'border-red-300 text-red-700'
+                                isActive ? 'border-white/40 text-white hover:bg-red-900/60' : 'border-red-300 text-red-700 hover:bg-red-50'
                               }`}
                               title="Szint törlése"
                             >

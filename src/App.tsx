@@ -40,6 +40,7 @@ import { ShareRouteModal } from './components/wayfinder/ShareRouteModal';
 import { BlueprintExportModal } from './components/blueprint/BlueprintExportModal';
 import { CloudSyncModal } from './components/common/CloudSyncModal';
 import { UnderlayManagerModal } from './components/editor/UnderlayManagerModal';
+import { FloorCopyModal } from './components/editor/FloorCopyModal';
 import { AuthRequiredModal } from './components/auth/AuthRequiredModal';
 import { EditorToolbar } from './components/editor/EditorToolbar';
 import { RoomInspector } from './components/editor/RoomInspector';
@@ -251,6 +252,7 @@ export function App() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isRoomDetailOpen, setIsRoomDetailOpen] = useState(false);
   const [isUnderlayModalOpen, setIsUnderlayModalOpen] = useState(false);
+  const [isFloorCopyModalOpen, setIsFloorCopyModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // 7. Simulation Walkthrough State
@@ -1060,6 +1062,7 @@ export function App() {
               canRedo={redoStack.length > 0}
               onOpenUnderlayModal={() => setIsUnderlayModalOpen(true)}
               hasUnderlay={!!activeFloor.underlay?.url}
+              onOpenCopyFloorModal={() => setIsFloorCopyModalOpen(true)}
               isAllElementsSelected={isAllElementsSelected}
               onSelectAllElements={() => {
                 setIsAllElementsSelected((prev) => !prev);
@@ -1404,6 +1407,14 @@ export function App() {
         onClose={() => setIsUnderlayModalOpen(false)}
         floor={activeFloor}
         onUpdateFloor={handleUpdateFloor}
+      />
+
+      <FloorCopyModal
+        isOpen={isFloorCopyModalOpen}
+        onClose={() => setIsFloorCopyModalOpen(false)}
+        building={activeBuilding}
+        activeFloor={activeFloor}
+        onApplyClonedData={(updatedFloor) => handleUpdateFloor(updatedFloor)}
       />
 
       <BlueprintExportModal

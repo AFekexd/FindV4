@@ -18,6 +18,7 @@ import {
   Image as ImageIcon,
   LandPlot,
   BoxSelect,
+  Copy,
 } from 'lucide-react';
 
 interface EditorToolbarProps {
@@ -33,6 +34,7 @@ interface EditorToolbarProps {
   canRedo?: boolean;
   onOpenUnderlayModal?: () => void;
   hasUnderlay?: boolean;
+  onOpenCopyFloorModal?: () => void;
   isAllElementsSelected?: boolean;
   onSelectAllElements?: () => void;
   className?: string;
@@ -51,6 +53,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   canRedo = false,
   onOpenUnderlayModal,
   hasUnderlay = false,
+  onOpenCopyFloorModal,
   isAllElementsSelected = false,
   onSelectAllElements,
   className = '',
@@ -195,8 +198,17 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         </div>
       </div>
 
-      {/* Smart NavMesh Auto Generator */}
+      {/* Smart NavMesh & Floor Structure Actions */}
       <div className="border-t border-[#1A3C2B]/20 pt-2 flex flex-col gap-1.5">
+        <button
+          onClick={onOpenCopyFloorModal}
+          className="w-full py-1.5 bg-white hover:bg-[#F0F5F2] border border-[#1A3C2B] text-[#1A3C2B] font-mono text-[10.5px] font-bold flex items-center justify-center gap-1.5 transition-colors"
+          title="Alaprajz és szobák átmásolása egy másik meglévő szintről"
+        >
+          <Copy className="w-3.5 h-3.5 text-[#047857]" />
+          <span>SZINT MÁSOLÁSA MÁSIKRÓL</span>
+        </button>
+
         <button
           onClick={onAutoGenerateNavMesh}
           className="w-full py-2 bg-white hover:bg-[#F0F5F2] border border-[#1A3C2B] text-[#1A3C2B] font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors"
