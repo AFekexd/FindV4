@@ -1519,7 +1519,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInput =
-        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
 
       if (e.key === 'Enter' && activeTool === 'room' && drawingState.polygonPoints.length >= 3) {
         const finalPolygon = drawingState.polygonPoints;

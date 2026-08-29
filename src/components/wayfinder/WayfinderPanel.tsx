@@ -101,13 +101,22 @@ export const WayfinderPanel: React.FC<WayfinderPanelProps> = ({
   onInjectNearestTransit,
   className = '',
 }) => {
-  // Build unified searchable targets across all building floors
+  // Build unified searchable targets across all building floors (ordered by floor elevation)
   const allSearchableTargets = useMemo<SearchableTargetItem[]>(() => {
     const list: SearchableTargetItem[] = [];
 
-    for (const floor of building.floors) {
-      // 1. Rooms
-      for (const room of floor.rooms) {
+    // Sort floors by elevation ascending
+    const sortedFloors = [...building.floors].sort((a, b) => {
+      const elevA = a.elevationMeters ?? a.level ?? 0;
+      const elevB = b.elevationMeters ?? b.level ?? 0;
+      if (elevA !== elevB) return elevA - elevB;
+      return (a.level ?? 0) - (b.level ?? 0);
+    });
+
+    for (const floor of sortedFloors) {
+      // 1. Rooms (sorted by code / name)
+      const sortedRooms = [...floor.rooms].sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name, 'hu'));
+      for (const room of sortedRooms) {
         list.push({
           id: room.id,
           name: room.name,
@@ -120,7 +129,21 @@ export const WayfinderPanel: React.FC<WayfinderPanelProps> = ({
         });
       }
 
-      // 2. POIs
+      // 2. Zones / Aulas
+      for (const zone of floor.zones || []) {
+        list.push({
+          id: zone.id,
+          name: zone.name,
+          code: zone.code,
+          floor,
+          category: 'room',
+          categoryLabel: 'Zóna / Aula',
+          subText: zone.description || (zone.tags && zone.tags.length > 0 ? zone.tags.join(', ') : undefined),
+          icon: 'room',
+        });
+      }
+
+      // 3. POIs
       for (const poi of floor.pois) {
         const huName = POI_NAMES_HU[poi.type] || poi.name;
         list.push({
@@ -147,20 +170,6 @@ export const WayfinderPanel: React.FC<WayfinderPanelProps> = ({
               : poi.type === 'water'
               ? 'water'
               : 'poi',
-        });
-      }
-
-      // 3. Zones / Aulas
-      for (const zone of floor.zones || []) {
-        list.push({
-          id: zone.id,
-          name: zone.name,
-          code: zone.code,
-          floor,
-          category: 'room',
-          categoryLabel: 'Zóna / Aula',
-          subText: zone.description || (zone.tags && zone.tags.length > 0 ? zone.tags.join(', ') : undefined),
-          icon: 'room',
         });
       }
 
@@ -231,19 +240,17 @@ export const WayfinderPanel: React.FC<WayfinderPanelProps> = ({
   const startTargetItem = allSearchableTargets.find((t) => t.id === startRoomId);
   const destinationTargetItem = allSearchableTargets.find((t) => t.id === targetRoomId);
 
-  // Filter helper
+  // Filter helper: returns all targets if query is empty, or all matching targets without arbitrary limit
   const filterTargets = (query: string) => {
-    if (!query.trim()) return allSearchableTargets.slice(0, 8);
-    const q = query.toLowerCase();
-    return allSearchableTargets
-      .filter((t) => {
-        const nameMatch = t.name.toLowerCase().includes(q);
-        const codeMatch = t.code && t.code.toLowerCase().includes(q);
-        const subMatch = t.subText && t.subText.toLowerCase().includes(q);
-        const floorMatch = t.floor.name.toLowerCase().includes(q) || t.floor.shortCode.toLowerCase().includes(q);
-        return nameMatch || codeMatch || subMatch || floorMatch;
-      })
-      .slice(0, 10);
+    if (!query.trim()) return allSearchableTargets;
+    const q = query.toLowerCase().trim();
+    return allSearchableTargets.filter((t) => {
+      const nameMatch = t.name.toLowerCase().includes(q);
+      const codeMatch = t.code && t.code.toLowerCase().includes(q);
+      const subMatch = t.subText && t.subText.toLowerCase().includes(q);
+      const floorMatch = t.floor.name.toLowerCase().includes(q) || t.floor.shortCode.toLowerCase().includes(q);
+      return nameMatch || codeMatch || subMatch || floorMatch;
+    });
   };
 
   const startFiltered = useMemo(() => filterTargets(startQuery), [allSearchableTargets, startQuery]);
@@ -372,29 +379,44 @@ export const WayfinderPanel: React.FC<WayfinderPanelProps> = ({
 
           {/* Autocomplete Dropdown for Start */}
           {isStartFocused && (
-            <div className="absolute top-full left-0 right-0 z-30 mt-1 bg-[#FFFFFF] border border-[#1A3C2B] shadow-xl max-h-56 overflow-y-auto">
-              {startFiltered.map((item) => (
-                <div
-                  key={item.id}
-                  onMouseDown={() => onSetStartRoom(item.id)}
-                  className="p-2 border-b border-[#D0D0C7]/50 hover:bg-[#F0F5F2] cursor-pointer flex items-center justify-between gap-2"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm">{renderTargetIcon(item)}</span>
-                    <div className="flex flex-col min-w-0">
-                      <span className="font-sans font-bold text-xs text-[#1A3C2B] truncate">{item.name}</span>
-                      <span className="font-mono text-[9px] text-[#1A3C2B]/60 truncate">
-                        {item.floor.shortCode} • {item.subText || item.categoryLabel}
+            <div className="absolute top-full left-0 right-0 z-30 mt-1 bg-[#FFFFFF] border border-[#1A3C2B] shadow-2xl max-h-72 overflow-y-auto">
+              <div className="px-2.5 py-1 bg-[#F0F5F2] border-b border-[#D0D0C7] text-[9px] font-mono font-bold text-[#1A3C2B]/70 flex justify-between items-center sticky top-0 z-10 backdrop-blur-xs">
+                <span>VÁLASSZON INDULÁSI PONTOT</span>
+                <span>{startFiltered.length} helyiség / cél</span>
+              </div>
+              {startFiltered.length === 0 ? (
+                <div className="p-4 text-center text-xs text-[#1A3C2B]/60 font-mono">
+                  Nincs a keresésnek megfelelő helyiség az épületben.
+                </div>
+              ) : (
+                startFiltered.map((item) => (
+                  <div
+                    key={item.id}
+                    onMouseDown={() => onSetStartRoom(item.id)}
+                    className="p-2 border-b border-[#D0D0C7]/50 hover:bg-[#F0F5F2] cursor-pointer flex items-center justify-between gap-2 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm flex-shrink-0">{renderTargetIcon(item)}</span>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-sans font-bold text-xs text-[#1A3C2B] truncate">{item.name}</span>
+                        <span className="font-mono text-[9px] text-[#1A3C2B]/60 truncate">
+                          {item.floor.name} • {item.subText || item.categoryLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span className="font-mono text-[9px] font-bold text-white bg-[#1A3C2B] px-1 py-0.5">
+                        {item.floor.shortCode}
                       </span>
+                      {item.code && (
+                        <span className="font-mono text-[10px] font-bold text-[#1A3C2B] px-1 bg-[#F7F7F5] border border-[#D0D0C7]">
+                          {item.code}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  {item.code && (
-                    <span className="font-mono text-[10px] font-bold text-[#1A3C2B] px-1 bg-[#F7F7F5] border border-[#D0D0C7] flex-shrink-0">
-                      {item.code}
-                    </span>
-                  )}
-                </div>
-              ))}
+                ))
+              )}
             </div>
           )}
         </div>
@@ -488,7 +510,10 @@ export const WayfinderPanel: React.FC<WayfinderPanelProps> = ({
         {/* Add Stop Autocomplete Input */}
         {showAddStopDropdown && (
           <div className="p-2.5 bg-[#FFFFFF] border border-[#1A3C2B] flex flex-col gap-1.5 shadow-md">
-            <span className="font-mono text-[9px] font-bold text-[#1A3C2B] uppercase">Köztes megálló keresése:</span>
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[9px] font-bold text-[#1A3C2B] uppercase">Köztes megálló keresése:</span>
+              <span className="font-mono text-[9px] text-[#1A3C2B]/60">{stopFiltered.length} találat</span>
+            </div>
             <input
               type="text"
               placeholder="Terem, lift vagy szolgáltatás keresése..."
@@ -497,22 +522,28 @@ export const WayfinderPanel: React.FC<WayfinderPanelProps> = ({
               className="border border-[#1A3C2B] px-2 py-1 text-xs"
               autoFocus
             />
-            <div className="max-h-36 overflow-y-auto flex flex-col gap-1">
-              {stopFiltered.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => handleAddStop(item.id)}
-                  className="p-1.5 border border-[#D0D0C7] hover:bg-[#F0F5F2] cursor-pointer flex items-center justify-between text-xs gap-2"
-                >
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span>{renderTargetIcon(item)}</span>
-                    <span className="font-medium truncate">{item.name}</span>
-                  </div>
-                  <span className="font-mono text-[9px] px-1 bg-[#F7F7F5] flex-shrink-0">
-                    {item.floor.shortCode} • {item.code || item.categoryLabel}
-                  </span>
+            <div className="max-h-52 overflow-y-auto flex flex-col gap-1">
+              {stopFiltered.length === 0 ? (
+                <div className="p-2 text-center text-xs text-[#1A3C2B]/60 font-mono">
+                  Nincs találat.
                 </div>
-              ))}
+              ) : (
+                stopFiltered.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => handleAddStop(item.id)}
+                    className="p-1.5 border border-[#D0D0C7] hover:bg-[#F0F5F2] cursor-pointer flex items-center justify-between text-xs gap-2"
+                  >
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span>{renderTargetIcon(item)}</span>
+                      <span className="font-medium truncate">{item.name}</span>
+                    </div>
+                    <span className="font-mono text-[9px] px-1 bg-[#F7F7F5] flex-shrink-0">
+                      {item.floor.shortCode} • {item.code || item.categoryLabel}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -564,29 +595,44 @@ export const WayfinderPanel: React.FC<WayfinderPanelProps> = ({
 
           {/* Autocomplete Dropdown for Target */}
           {isTargetFocused && (
-            <div className="absolute top-full left-0 right-0 z-30 mt-1 bg-[#FFFFFF] border border-[#1A3C2B] shadow-xl max-h-56 overflow-y-auto">
-              {targetFiltered.map((item) => (
-                <div
-                  key={item.id}
-                  onMouseDown={() => onSetTargetRoom(item.id)}
-                  className="p-2 border-b border-[#D0D0C7]/50 hover:bg-[#F0F5F2] cursor-pointer flex items-center justify-between gap-2"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm">{renderTargetIcon(item)}</span>
-                    <div className="flex flex-col min-w-0">
-                      <span className="font-sans font-bold text-xs text-[#1A3C2B] truncate">{item.name}</span>
-                      <span className="font-mono text-[9px] text-[#1A3C2B]/60 truncate">
-                        {item.floor.shortCode} • {item.subText || item.categoryLabel}
+            <div className="absolute top-full left-0 right-0 z-30 mt-1 bg-[#FFFFFF] border border-[#1A3C2B] shadow-2xl max-h-72 overflow-y-auto">
+              <div className="px-2.5 py-1 bg-[#F0F5F2] border-b border-[#D0D0C7] text-[9px] font-mono font-bold text-[#1A3C2B]/70 flex justify-between items-center sticky top-0 z-10 backdrop-blur-xs">
+                <span>VÁLASSZON CÉLÁLLOMÁST</span>
+                <span>{targetFiltered.length} helyiség / cél</span>
+              </div>
+              {targetFiltered.length === 0 ? (
+                <div className="p-4 text-center text-xs text-[#1A3C2B]/60 font-mono">
+                  Nincs a keresésnek megfelelő helyiség az épületben.
+                </div>
+              ) : (
+                targetFiltered.map((item) => (
+                  <div
+                    key={item.id}
+                    onMouseDown={() => onSetTargetRoom(item.id)}
+                    className="p-2 border-b border-[#D0D0C7]/50 hover:bg-[#F0F5F2] cursor-pointer flex items-center justify-between gap-2 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm flex-shrink-0">{renderTargetIcon(item)}</span>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-sans font-bold text-xs text-[#1A3C2B] truncate">{item.name}</span>
+                        <span className="font-mono text-[9px] text-[#1A3C2B]/60 truncate">
+                          {item.floor.name} • {item.subText || item.categoryLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span className="font-mono text-[9px] font-bold text-white bg-[#1A3C2B] px-1 py-0.5">
+                        {item.floor.shortCode}
                       </span>
+                      {item.code && (
+                        <span className="font-mono text-[10px] font-bold text-[#1A3C2B] px-1 bg-[#F7F7F5] border border-[#D0D0C7]">
+                          {item.code}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  {item.code && (
-                    <span className="font-mono text-[10px] font-bold text-[#1A3C2B] px-1 bg-[#F7F7F5] border border-[#D0D0C7] flex-shrink-0">
-                      {item.code}
-                    </span>
-                  )}
-                </div>
-              ))}
+                ))
+              )}
             </div>
           )}
         </div>

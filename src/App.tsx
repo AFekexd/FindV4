@@ -731,73 +731,188 @@ export function App() {
     else if (clipboard.type === 'door') handleDuplicateDoor(clipboard.data);
   }, [clipboard, activeFloor, handleDuplicateRoom, handleDuplicateZone, handleDuplicatePOI, handleDuplicateTransit, handleDuplicateDoor]);
 
-  // Keyboard shortcut listener (Ctrl+Z, Ctrl+Y, Ctrl+D, Ctrl+C, Ctrl+V, etc.)
+  // Keyboard shortcut listener (Tool switching V/R/Z/W/D/T/P/N/M/X, Delete, Ctrl+Z, Ctrl+Y, Ctrl+D, Ctrl+C, Ctrl+V, etc.)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      const isInput = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      );
 
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-        if (e.shiftKey) {
+      // Ctrl / Cmd shortcuts
+      if (e.metaKey || e.ctrlKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleRedo();
+          } else {
+            handleUndo();
+          }
+        } else if (key === 'y') {
           e.preventDefault();
           handleRedo();
-        } else {
+        } else if (key === 'k') {
           e.preventDefault();
-          handleUndo();
-        }
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        handleRedo();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setIsDirectoryOpen((prev) => !prev);
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
-        if (appMode === 'studio' && !isInput) {
-          e.preventDefault();
-          if (selectedRoom) handleDuplicateRoom(selectedRoom);
-          else if (selectedZone) handleDuplicateZone(selectedZone);
-          else if (selectedPOI) handleDuplicatePOI(selectedPOI);
-          else if (selectedTransit) handleDuplicateTransit(selectedTransit);
-          else if (selectedDoor) handleDuplicateDoor(selectedDoor);
-        }
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
-        if (appMode === 'studio' && !isInput) {
-          if (selectedRoom) {
+          setIsDirectoryOpen((prev) => !prev);
+        } else if (key === 'd') {
+          if (appMode === 'studio' && !isInput) {
             e.preventDefault();
-            setClipboard({ type: 'room', data: selectedRoom });
-          } else if (selectedZone) {
+            if (selectedRoom) handleDuplicateRoom(selectedRoom);
+            else if (selectedZone) handleDuplicateZone(selectedZone);
+            else if (selectedPOI) handleDuplicatePOI(selectedPOI);
+            else if (selectedTransit) handleDuplicateTransit(selectedTransit);
+            else if (selectedDoor) handleDuplicateDoor(selectedDoor);
+          }
+        } else if (key === 'c') {
+          if (appMode === 'studio' && !isInput) {
+            if (selectedRoom) {
+              e.preventDefault();
+              setClipboard({ type: 'room', data: selectedRoom });
+            } else if (selectedZone) {
+              e.preventDefault();
+              setClipboard({ type: 'zone', data: selectedZone });
+            } else if (selectedPOI) {
+              e.preventDefault();
+              setClipboard({ type: 'poi', data: selectedPOI });
+            } else if (selectedTransit) {
+              e.preventDefault();
+              setClipboard({ type: 'transit', data: selectedTransit });
+            } else if (selectedDoor) {
+              e.preventDefault();
+              setClipboard({ type: 'door', data: selectedDoor });
+            }
+          }
+        } else if (key === 'v') {
+          if (appMode === 'studio' && !isInput && clipboard) {
             e.preventDefault();
-            setClipboard({ type: 'zone', data: selectedZone });
-          } else if (selectedPOI) {
+            handlePaste();
+          }
+        } else if (key === 'a') {
+          if (appMode === 'studio' && !isInput) {
             e.preventDefault();
-            setClipboard({ type: 'poi', data: selectedPOI });
-          } else if (selectedTransit) {
-            e.preventDefault();
-            setClipboard({ type: 'transit', data: selectedTransit });
-          } else if (selectedDoor) {
-            e.preventDefault();
-            setClipboard({ type: 'door', data: selectedDoor });
+            setIsAllElementsSelected(true);
+            setSelectedRoom(null);
+            setSelectedZone(null);
+            setSelectedTransit(null);
+            setSelectedPOI(null);
+            setSelectedDoor(null);
           }
         }
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
-        if (appMode === 'studio' && !isInput && clipboard) {
-          e.preventDefault();
-          handlePaste();
+        return;
+      }
+
+      // Non-modifier single-key shortcuts in CAD Studio mode
+      if (!isInput && appMode === 'studio') {
+        // Delete selected entity with Delete or Backspace
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          if (selectedRoom) {
+            e.preventDefault();
+            handleUpdateFloor({
+              ...activeFloor,
+              rooms: activeFloor.rooms.filter((r) => r.id !== selectedRoom.id),
+            });
+            setSelectedRoom(null);
+          } else if (selectedZone) {
+            e.preventDefault();
+            handleUpdateFloor({
+              ...activeFloor,
+              zones: (activeFloor.zones || []).filter((z) => z.id !== selectedZone.id),
+            });
+            setSelectedZone(null);
+          } else if (selectedPOI) {
+            e.preventDefault();
+            handleUpdateFloor({
+              ...activeFloor,
+              pois: activeFloor.pois.filter((p) => p.id !== selectedPOI.id),
+            });
+            setSelectedPOI(null);
+          } else if (selectedTransit) {
+            e.preventDefault();
+            handleUpdateFloor({
+              ...activeFloor,
+              transitConnectors: activeFloor.transitConnectors.filter((t) => t.id !== selectedTransit.id),
+            });
+            setSelectedTransit(null);
+          } else if (selectedDoor) {
+            e.preventDefault();
+            handleUpdateFloor({
+              ...activeFloor,
+              doors: activeFloor.doors.filter((d) => d.id !== selectedDoor.id),
+            });
+            setSelectedDoor(null);
+          }
+          return;
         }
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
-        if (appMode === 'studio' && !isInput) {
-          e.preventDefault();
-          setIsAllElementsSelected(true);
-          setSelectedRoom(null);
-          setSelectedZone(null);
-          setSelectedTransit(null);
-          setSelectedPOI(null);
-          setSelectedDoor(null);
+
+        // CAD Tool shortcuts
+        const key = e.key.toLowerCase();
+        switch (key) {
+          case 'v':
+            e.preventDefault();
+            setActiveTool('select');
+            break;
+          case 'r':
+            e.preventDefault();
+            setActiveTool('room');
+            break;
+          case 'z':
+            e.preventDefault();
+            setActiveTool('zone');
+            break;
+          case 'w':
+            e.preventDefault();
+            setActiveTool('wall');
+            break;
+          case 'd':
+            e.preventDefault();
+            setActiveTool('door');
+            break;
+          case 't':
+            e.preventDefault();
+            setActiveTool('transit');
+            break;
+          case 'p':
+            e.preventDefault();
+            setActiveTool('poi');
+            break;
+          case 'n':
+            e.preventDefault();
+            setActiveTool('nav_node');
+            break;
+          case 'm':
+            e.preventDefault();
+            setActiveTool('measure');
+            break;
+          case 'x':
+          case 'e':
+            e.preventDefault();
+            setActiveTool('eraser');
+            break;
+          case 'escape':
+            setIsAllElementsSelected(false);
+            setSelectedRoom(null);
+            setSelectedZone(null);
+            setSelectedTransit(null);
+            setSelectedPOI(null);
+            setSelectedDoor(null);
+            break;
+          default:
+            break;
         }
       } else if (e.key === 'Escape') {
         setIsAllElementsSelected(false);
+        setSelectedRoom(null);
+        setSelectedZone(null);
+        setSelectedTransit(null);
+        setSelectedPOI(null);
+        setSelectedDoor(null);
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
@@ -817,6 +932,9 @@ export function App() {
     handleDuplicateTransit,
     handleDuplicateDoor,
     handlePaste,
+    handleUndo,
+    handleRedo,
+    handleUpdateFloor,
   ]);
 
 
