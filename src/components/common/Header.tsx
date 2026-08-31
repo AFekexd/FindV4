@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import type { Institution, Building, Floor, AppMode } from '../../types';
 import type { UserProfile } from '../../auth/keycloak';
 import {
@@ -22,6 +22,9 @@ import {
   LogIn,
   Lock,
   Cloud,
+  Menu,
+  X,
+  Smartphone,
 } from 'lucide-react';
 import { exportInstitutionsJSON, importInstitutionsFromJSON } from '../../utils/storage';
 import type { SyncStatus } from '../../services/supabase';
@@ -73,6 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
   onResetData,
   onDataImported,
 }) => {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImportClick = () => {
@@ -100,6 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
       return;
     }
     onSetAppMode('studio');
+    setIsMobileMenuOpen(false);
   };
 
   const handleFloorManagerClick = () => {
@@ -108,10 +113,18 @@ export const Header: React.FC<HeaderProps> = ({
       return;
     }
     onOpenFloorManager();
+    setIsMobileMenuOpen(false);
   };
 
+  const sortedFloors = [...activeBuilding.floors].sort((a, b) => {
+    const elevA = a.elevationMeters ?? a.level ?? 0;
+    const elevB = b.elevationMeters ?? b.level ?? 0;
+    if (elevA !== elevB) return elevA - elevB;
+    return (a.level ?? 0) - (b.level ?? 0);
+  });
+
   return (
-    <header className="bg-[#FFFFFF] border-b border-[#1A3C2B] select-none z-30">
+    <header className="bg-[#FFFFFF] border-b border-[#1A3C2B] select-none z-30 relative safe-top">
       {/* Hidden File Input for Data Import */}
       <input
         ref={fileInputRef}
@@ -121,8 +134,317 @@ export const Header: React.FC<HeaderProps> = ({
         className="hidden"
       />
 
-      {/* Top Bento Header Bar */}
-      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between px-4 py-2.5 gap-3">
+      {/* ─────────────────────────────────────────────────────────────
+          1. MOBILE COMPACT HEADER (< 1024px)
+          ───────────────────────────────────────────────────────────── */}
+      <div className="flex lg:hidden items-center justify-between px-3 py-2">
+        {/* Brand & Active Context */}
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 bg-[#1A3C2B] text-[#F7F7F5] flex items-center justify-center border border-[#1A3C2B] flex-shrink-0">
+            <Compass className="w-4 h-4 stroke-[1.8]" />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-xs font-black tracking-wider text-[#1A3C2B]">
+                POLLAKFIND
+              </span>
+              <span className="font-mono text-[8px] px-1 bg-[#1A3C2B] text-white font-bold uppercase">
+                V4
+              </span>
+            </div>
+            <div className="flex items-center gap-1 font-mono text-[9px] text-[#1A3C2B]/80 truncate">
+              <span className="font-bold truncate max-w-[100px]">{activeBuilding.name}</span>
+              <span>•</span>
+              <span className="font-bold text-[#047857]">{activeFloor.shortCode}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Quick Action Buttons */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* Quick Search */}
+          <button
+            onClick={onOpenDirectory}
+            className="p-1.5 border border-[#1A3C2B] bg-[#F7F7F5] hover:bg-[#1A3C2B] hover:text-white transition-colors"
+            title="Névtár kereső"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Quick Mode Toggle */}
+          <button
+            onClick={() => onSetAppMode(appMode === '3d' ? 'wayfinder' : '3d')}
+            className={`px-2 py-1 border border-[#1A3C2B] font-mono text-[10px] font-bold flex items-center gap-1 transition-colors ${
+              appMode === '3d' ? 'bg-[#1A3C2B] text-white' : 'bg-[#F7F7F5] text-[#1A3C2B]'
+            }`}
+            title="3D Nézet váltás"
+          >
+            <Box className="w-3 h-3" />
+            <span>{appMode === '3d' ? '2D' : '3D'}</span>
+          </button>
+
+          {/* Hamburger Menu Toggle */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="p-1.5 border-2 border-[#1A3C2B] bg-[#1A3C2B] text-white transition-colors"
+            title="Menü megnyitása"
+          >
+            {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────
+          2. MOBILE SLIDEOUT DRAWER / SHEET (< 1024px)
+          ───────────────────────────────────────────────────────────── */}
+      {isMobileMenuOpen && (
+        <div className="lg:hidden border-t-2 border-[#1A3C2B] bg-[#F7F7F5] p-3 flex flex-col gap-3 max-h-[80vh] overflow-y-auto animate-in slide-in-from-top-2 duration-150 shadow-xl">
+          {/* Campus & Building Selectors */}
+          <div className="flex flex-col gap-1.5 bg-white border border-[#1A3C2B] p-2.5">
+            <span className="font-mono text-[9px] uppercase font-bold text-[#1A3C2B]/70 flex items-center gap-1">
+              <MapPin className="w-3 h-3 text-[#1A3C2B]" /> CAMPUS & ÉPÜLET
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <select
+                value={activeInstitution.id}
+                onChange={(e) => onSelectInstitution(e.target.value)}
+                className="bg-[#F7F7F5] border border-[#1A3C2B] px-2.5 py-1.5 font-sans text-xs font-bold text-[#1A3C2B] focus:outline-none"
+              >
+                {institutions.map((inst) => (
+                  <option key={inst.id} value={inst.id}>
+                    {inst.name} ({inst.city})
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={activeBuilding.id}
+                onChange={(e) => onSelectBuilding(e.target.value)}
+                className="bg-[#F7F7F5] border border-[#1A3C2B] px-2.5 py-1.5 font-sans text-xs font-bold text-[#1A3C2B] focus:outline-none"
+              >
+                {activeInstitution.buildings.map((bld) => (
+                  <option key={bld.id} value={bld.id}>
+                    {bld.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Floor Level Selector Chips */}
+          <div className="flex flex-col gap-1 bg-white border border-[#1A3C2B] p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[9px] uppercase font-bold text-[#1A3C2B]/70 flex items-center gap-1">
+                <Layers className="w-3 h-3 text-[#1A3C2B]" /> SZINT VÁLASZTÁS
+              </span>
+              <button
+                onClick={handleFloorManagerClick}
+                className="text-[9px] font-mono font-bold text-emerald-800 hover:underline"
+              >
+                SZINTEK KEZELÉSE ⚙
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {sortedFloors.map((floor) => {
+                const isActive = floor.id === activeFloor.id;
+                return (
+                  <button
+                    key={floor.id}
+                    onClick={() => {
+                      onSelectFloor(floor.id);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`px-3 py-1.5 font-mono text-xs font-bold border transition-colors flex items-center gap-1 ${
+                      isActive
+                        ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
+                        : 'bg-[#F7F7F5] text-[#1A3C2B] border-[#1A3C2B]/30 hover:bg-[#EFEFEA]'
+                    }`}
+                  >
+                    <span>{floor.shortCode}</span>
+                    <span className="text-[9px] font-normal opacity-80">({floor.name})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* App Modes */}
+          <div className="flex flex-col gap-1 bg-white border border-[#1A3C2B] p-2.5">
+            <span className="font-mono text-[9px] uppercase font-bold text-[#1A3C2B]/70">
+              ALKALMAZÁS NÉZET
+            </span>
+            <div className="grid grid-cols-2 gap-1.5 mt-0.5">
+              <button
+                onClick={() => {
+                  onSetAppMode('wayfinder');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`p-2 border font-mono text-xs font-bold flex items-center gap-1.5 ${
+                  appMode === 'wayfinder'
+                    ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
+                    : 'bg-[#F7F7F5] text-[#1A3C2B] border-[#1A3C2B]/30'
+                }`}
+              >
+                <Navigation className="w-3.5 h-3.5" />
+                <span>ÚTVONAL</span>
+              </button>
+
+              <button
+                onClick={handleStudioClick}
+                className={`p-2 border font-mono text-xs font-bold flex items-center gap-1.5 ${
+                  appMode === 'studio'
+                    ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
+                    : 'bg-[#F7F7F5] text-[#1A3C2B] border-[#1A3C2B]/30'
+                }`}
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>CAD STÚDIÓ</span>
+                {!isAuthenticated && <Lock className="w-2.5 h-2.5 opacity-60 ml-auto" />}
+              </button>
+
+              <button
+                onClick={() => {
+                  onSetAppMode('3d');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`p-2 border font-mono text-xs font-bold flex items-center gap-1.5 ${
+                  appMode === '3d'
+                    ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
+                    : 'bg-[#F7F7F5] text-[#1A3C2B] border-[#1A3C2B]/30'
+                }`}
+              >
+                <Box className="w-3.5 h-3.5" />
+                <span>3D NÉZET</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  onSetAppMode('kiosk');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`p-2 border font-mono text-xs font-bold flex items-center gap-1.5 ${
+                  appMode === 'kiosk'
+                    ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
+                    : 'bg-[#F7F7F5] text-[#1A3C2B] border-[#1A3C2B]/30'
+                }`}
+              >
+                <Monitor className="w-3.5 h-3.5" />
+                <span>KIOSZK MÓD</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Directory, Cloud & Auth Section */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                onOpenDirectory();
+                setIsMobileMenuOpen(false);
+              }}
+              className="p-2 bg-white border border-[#1A3C2B] font-mono text-xs font-bold text-[#1A3C2B] flex items-center justify-center gap-1.5"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>NÉVTÁR</span>
+            </button>
+
+            {onOpenCloudModal && (
+              <button
+                onClick={() => {
+                  onOpenCloudModal();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="p-2 bg-white border border-[#1A3C2B] font-mono text-xs font-bold text-[#1A3C2B] flex items-center justify-center gap-1.5"
+              >
+                <Cloud
+                  className={`w-3.5 h-3.5 ${
+                    syncStatus === 'synced'
+                      ? 'text-emerald-700'
+                      : syncStatus === 'syncing'
+                      ? 'text-amber-500 animate-spin'
+                      : syncStatus === 'error'
+                      ? 'text-red-600'
+                      : 'text-[#1A3C2B]'
+                  }`}
+                />
+                <span>FELHŐ</span>
+              </button>
+            )}
+          </div>
+
+          {/* User Profile / Login */}
+          <div className="border-t border-[#1A3C2B]/20 pt-2 flex items-center justify-between">
+            {isAuthenticated && user ? (
+              <div className="flex items-center justify-between w-full bg-white border border-[#1A3C2B] p-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                  <span className="font-mono text-xs font-bold">{user.username}</span>
+                  {user.activeRoleBadge && (
+                    <span className="text-[9px] font-bold px-1 bg-[#1A3C2B] text-white">
+                      {user.activeRoleBadge}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    onLogout();
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="px-2 py-1 bg-red-50 text-red-700 border border-red-300 font-mono text-[10px] font-bold flex items-center gap-1"
+                >
+                  <LogOut className="w-3 h-3" />
+                  <span>KILÉPÉS</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  onLogin();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full py-2 bg-[#1A3C2B] text-white font-mono text-xs font-bold flex items-center justify-center gap-1.5"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>BEJELENTKEZÉS SSO-VAL</span>
+              </button>
+            )}
+          </div>
+
+          {/* Backup & Utilities */}
+          <div className="flex items-center justify-between border-t border-[#1A3C2B]/20 pt-2 font-mono text-[10px]">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => exportInstitutionsJSON(institutions)}
+                className="px-2 py-1 border border-[#1A3C2B] bg-white flex items-center gap-1 font-bold"
+              >
+                <Download className="w-3 h-3" /> EXPORT
+              </button>
+              <button
+                onClick={handleImportClick}
+                className="px-2 py-1 border border-[#1A3C2B] bg-white flex items-center gap-1 font-bold"
+              >
+                <Upload className="w-3 h-3" /> IMPORT
+              </button>
+            </div>
+
+            {onOpenExportModal && (
+              <button
+                onClick={() => {
+                  onOpenExportModal();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="px-2 py-1 border border-[#1A3C2B] bg-white flex items-center gap-1 font-bold"
+              >
+                <Printer className="w-3 h-3" /> TERVLAP
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          3. FULL DESKTOP BENTO HEADER (≥ 1024px)
+          ───────────────────────────────────────────────────────────── */}
+      <div className="hidden lg:flex flex-row items-center justify-between px-4 py-2.5 gap-3">
         {/* Brand & Project Identity */}
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-[#1A3C2B] text-[#F7F7F5] flex items-center justify-center border border-[#1A3C2B]">
@@ -179,14 +501,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Floor Level Quick Pills */}
           <div className="flex items-center border border-[#1A3C2B] bg-[#F7F7F5] p-0.5">
-            {[...activeBuilding.floors]
-              .sort((a, b) => {
-                const elevA = a.elevationMeters ?? a.level ?? 0;
-                const elevB = b.elevationMeters ?? b.level ?? 0;
-                if (elevA !== elevB) return elevA - elevB;
-                return (a.level ?? 0) - (b.level ?? 0);
-              })
-              .map((floor) => {
+            {sortedFloors.map((floor) => {
               const isActive = floor.id === activeFloor.id;
               return (
                 <button

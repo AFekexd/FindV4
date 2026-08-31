@@ -850,48 +850,48 @@ export const Isometric3DView: React.FC<Isometric3DViewProps> = ({
         </div>
       )}
 
-      {/* Preset Camera Views (Bottom Left) */}
-      <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1.5 bg-[#F7F7F5] border border-[#1A3C2B] p-1.5 font-mono text-[10px] shadow-xs pointer-events-auto">
+      {/* Preset Camera Views (Bottom Left - Hidden on very small screens) */}
+      <div className="absolute bottom-3 left-3 z-20 hidden md:flex items-center gap-1 bg-[#F7F7F5] border border-[#1A3C2B] p-1 font-mono text-[9px] shadow-xs pointer-events-auto">
         <span className="font-bold text-[#1A3C2B] px-1">KAMERA:</span>
         <button
           onClick={() => setCameraPreset('isometric')}
           className="px-2 py-1 bg-white border border-[#1A3C2B]/30 hover:bg-[#1A3C2B] hover:text-white transition-colors font-bold"
         >
-          IZOMETRIKUS (45°)
+          IZOMETRIKUS
         </button>
         <button
           onClick={() => setCameraPreset('front')}
           className="px-2 py-1 bg-white border border-[#1A3C2B]/30 hover:bg-[#1A3C2B] hover:text-white transition-colors font-bold"
         >
-          HOMLOKZAT (ELŐL)
+          ELŐL
         </button>
         <button
           onClick={() => setCameraPreset('side')}
           className="px-2 py-1 bg-white border border-[#1A3C2B]/30 hover:bg-[#1A3C2B] hover:text-white transition-colors font-bold"
         >
-          OLDALNÉZET
+          OLDALT
         </button>
         <button
           onClick={() => setCameraPreset('top')}
           className="px-2 py-1 bg-white border border-[#1A3C2B]/30 hover:bg-[#1A3C2B] hover:text-white transition-colors font-bold"
         >
-          FELÜLNÉZET
+          FELÜL
         </button>
       </div>
 
       {/* Floor Stack Selector (Bottom Right) */}
-      <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-1 bg-[#F7F7F5] border border-[#1A3C2B] p-2 max-w-xs font-mono text-xs shadow-xs pointer-events-auto">
-        <span className="text-[9px] uppercase font-bold text-[#1A3C2B]/70 border-b border-[#1A3C2B]/20 pb-1">
-          SZINT KIVÁLASZTÁSA & 2D UGRÁS
+      <div className="absolute bottom-3 right-3 z-20 flex flex-col gap-1 bg-[#F7F7F5] border border-[#1A3C2B] p-1.5 max-w-[170px] sm:max-w-xs font-mono text-xs shadow-xs pointer-events-auto">
+        <span className="text-[8px] uppercase font-bold text-[#1A3C2B]/70 border-b border-[#1A3C2B]/20 pb-0.5">
+          SZINTEK & 2D UGRÁS
         </span>
-        <div className="flex flex-col gap-1 mt-1 max-h-40 overflow-y-auto">
+        <div className="flex flex-col gap-1 mt-0.5 max-h-32 sm:max-h-40 overflow-y-auto">
           {[...sortedFloors].reverse().map((floor) => {
             const isActive = floor.id === activeFloorId;
             const isTraversed = routeResult?.floorsTraversed.includes(floor.id);
             return (
               <div
                 key={floor.id}
-                className={`flex items-center justify-between p-1.5 border transition-all ${
+                className={`flex items-center justify-between p-1 border transition-all ${
                   isActive
                     ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
                     : isTraversed
@@ -901,10 +901,10 @@ export const Isometric3DView: React.FC<Isometric3DViewProps> = ({
               >
                 <button
                   onClick={() => onSelectFloor(floor.id)}
-                  className="flex items-center gap-1.5 text-left flex-1 min-w-0"
+                  className="flex items-center gap-1 text-left flex-1 min-w-0"
                 >
-                  <span className="font-bold text-[10px] px-1 bg-[#1A3C2B]/20">{floor.shortCode}</span>
-                  <span className="truncate text-[11px] font-sans font-medium">{floor.name}</span>
+                  <span className="font-bold text-[9px] px-1 bg-[#1A3C2B]/20">{floor.shortCode}</span>
+                  <span className="truncate text-[10px] font-sans font-medium">{floor.name}</span>
                 </button>
 
                 <button
@@ -930,7 +930,7 @@ export const Isometric3DView: React.FC<Isometric3DViewProps> = ({
         if (!target) return null;
         const area = polygonAreaInSquareMeters(target.room.polygon);
         return (
-          <div className="absolute top-16 left-3 z-30 bg-white border-2 border-[#1A3C2B] p-3 shadow-2xl font-mono text-xs flex flex-col gap-1.5 min-w-[220px] max-w-xs animate-in fade-in zoom-in-95 pointer-events-auto">
+          <div className="absolute top-14 left-3 right-3 sm:right-auto sm:max-w-xs z-30 bg-white border-2 border-[#1A3C2B] p-3 shadow-2xl font-mono text-xs flex flex-col gap-1.5 animate-in fade-in zoom-in-95 pointer-events-auto">
             <div className="flex items-center justify-between border-b border-[#1A3C2B]/20 pb-1">
               <span className="font-bold text-[#1A3C2B] text-xs">{target.room.name}</span>
               <button

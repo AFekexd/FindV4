@@ -633,10 +633,9 @@ export function buildNavGraph(
       // Check if they belong to the same vertical shaft/group:
       const sameGroup = !!(c1.transitGroupId && c2.transitGroupId && c1.transitGroupId === c2.transitGroupId);
       const sameType = c1.type === c2.type;
-      const sameName = !!(c1.name && c2.name && c1.name.trim().toLowerCase() === c2.name.trim().toLowerCase());
       const closePosition = distance(c1.position, c2.position) < 180; // Within ~9 meters 2D distance
 
-      const isSameShaft = sameGroup || (sameType && (sameName || closePosition));
+      const isSameShaft = sameType && (sameGroup || closePosition);
 
       if (isSameShaft) {
         if (preferences.accessibilityOnly && (!c1.isAccessible || !c2.isAccessible)) {

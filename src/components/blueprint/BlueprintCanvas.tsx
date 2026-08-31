@@ -1705,15 +1705,124 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
     };
   }
 
+  // Touch gestures for mobile / tablet panning and pinch-to-zoom
+  const touchStartRef = useRef<{
+    x: number;
+    y: number;
+    dist?: number;
+    midX?: number;
+    midY?: number;
+    startZoom?: number;
+    startPanX?: number;
+    startPanY?: number;
+  }>({ x: 0, y: 0 });
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        startPanX: viewport.x,
+        startPanY: viewport.y,
+        dist: undefined,
+      };
+    } else if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const container = containerRef.current;
+      const rect = container?.getBoundingClientRect();
+      const containerX = rect ? rect.left : 0;
+      const containerY = rect ? rect.top : 0;
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - containerX;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - containerY;
+
+      touchStartRef.current = {
+        x: 0,
+        y: 0,
+        dist,
+        midX,
+        midY,
+        startZoom: viewport.zoom,
+        startPanX: viewport.x,
+        startPanY: viewport.y,
+      };
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 1 && touchStartRef.current.dist === undefined) {
+      const dx = e.touches[0].clientX - touchStartRef.current.x;
+      const dy = e.touches[0].clientY - touchStartRef.current.y;
+      setViewport((prev) => ({
+        ...prev,
+        x: (touchStartRef.current.startPanX ?? prev.x) + dx,
+        y: (touchStartRef.current.startPanY ?? prev.y) + dy,
+      }));
+    } else if (e.touches.length === 2 && touchStartRef.current.dist) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      if (dist === 0) return;
+      const scaleFactor = dist / touchStartRef.current.dist;
+      const oldZoom = touchStartRef.current.startZoom || 1;
+      const newZoom = Math.min(10.0, Math.max(0.2, oldZoom * scaleFactor));
+
+      const container = containerRef.current;
+      const rect = container?.getBoundingClientRect();
+      const containerX = rect ? rect.left : 0;
+      const containerY = rect ? rect.top : 0;
+
+      const currentMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - containerX;
+      const currentMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - containerY;
+
+      const anchorX = touchStartRef.current.midX || 0;
+      const anchorY = touchStartRef.current.midY || 0;
+      const startPanX = touchStartRef.current.startPanX || 0;
+      const startPanY = touchStartRef.current.startPanY || 0;
+
+      const contentX = (anchorX - startPanX) / oldZoom;
+      const contentY = (anchorY - startPanY) / oldZoom;
+      const newPanX = currentMidX - contentX * newZoom;
+      const newPanY = currentMidY - contentY * newZoom;
+
+      setViewport({
+        x: newPanX,
+        y: newPanY,
+        zoom: newZoom,
+      });
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        startPanX: viewport.x,
+        startPanY: viewport.y,
+        dist: undefined,
+      };
+    } else if (e.touches.length === 0) {
+      touchStartRef.current = { x: 0, y: 0, dist: undefined };
+    }
+  };
+
   return (
     <div
       ref={containerRef}
-      className={`relative w-full h-full bg-[#F7F7F5] overflow-hidden select-none border border-[#1A3C2B] ${className}`}
+      className={`relative w-full h-full bg-[#F7F7F5] overflow-hidden select-none border border-[#1A3C2B] touch-none ${className}`}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onDoubleClick={handleDoubleClick}
       onWheel={handleWheel}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       style={{
         cursor: isPanning
           ? 'grabbing'
@@ -1816,7 +1925,7 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
       </div>
 
       {/* Bottom Left: Scale Bar & Coordinates */}
-      <div className="absolute bottom-3 left-3 z-20 flex flex-col gap-2 pointer-events-auto no-print">
+      <div className="absolute bottom-3 left-3 z-20 hidden sm:flex flex-col gap-2 pointer-events-auto no-print">
         <BlueprintScaleBar
           zoom={viewport.zoom}
           cursorPos={cursorFloorPos}
@@ -1827,17 +1936,19 @@ export const BlueprintCanvas: React.FC<BlueprintCanvasProps> = ({
       {/* Bottom Right: True North Compass & Mini-Map */}
       <div className="absolute bottom-3 right-3 z-20 flex items-end gap-2 pointer-events-auto no-print">
         <CompassRose />
-        <FloorMiniMap
-          floor={floor}
-          viewport={viewport}
-          containerSize={{
-            width: containerRef.current?.clientWidth || 800,
-            height: containerRef.current?.clientHeight || 600,
-          }}
-          onNavigate={(targetX, targetY) => {
-            setViewport((prev) => ({ ...prev, x: targetX, y: targetY }));
-          }}
-        />
+        <div className="hidden md:block">
+          <FloorMiniMap
+            floor={floor}
+            viewport={viewport}
+            containerSize={{
+              width: containerRef.current?.clientWidth || 800,
+              height: containerRef.current?.clientHeight || 600,
+            }}
+            onNavigate={(targetX, targetY) => {
+              setViewport((prev) => ({ ...prev, x: targetX, y: targetY }));
+            }}
+          />
+        </div>
       </div>
 
       {/* SVG Canvas Root */}

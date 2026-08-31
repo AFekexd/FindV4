@@ -29,6 +29,7 @@ import {
   findNearestPOIToRoom,
   findNearestTransitToRoom,
 } from './utils/pathfinding';
+import { Compass, Navigation } from 'lucide-react';
 import { useAuth } from './auth/AuthContext';
 import { Header } from './components/common/Header';
 import { BlueprintCanvas } from './components/blueprint/BlueprintCanvas';
@@ -227,8 +228,12 @@ export function App() {
     if (paramMode === 'mobile') return 'mobile';
     if (paramMode === 'kiosk') return 'kiosk';
     if (paramMode === '3d') return '3d';
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return 'mobile';
+    }
     return 'wayfinder';
   });
+  const [mobileWayfinderTab, setMobileWayfinderTab] = useState<'map' | 'route'>('map');
   const [activeTool, setActiveTool] = useState<EditorTool>('select');
   const [gridSnapSize, setGridSnapSize] = useState<number>(10);
 
@@ -1101,8 +1106,17 @@ export function App() {
         activeFloorId={activeFloor.id}
         startRoomId={startRoomId}
         targetRoomId={targetRoomId}
+        intermediateStopIds={intermediateStopIds}
         routeResult={routeResult}
+        routePreferences={routePreferences}
         onSelectFloor={handleSelectFloor}
+        onSetStartRoom={setStartRoomId}
+        onSetTargetRoom={setTargetRoomId}
+        onSetIntermediateStops={setIntermediateStopIds}
+        onSetPreferences={setRoutePreferences}
+        onOpenDirectory={() => setIsDirectoryOpen(true)}
+        onOpen3DView={() => setAppMode('3d')}
+        onOpenShareModal={() => setIsShareModalOpen(true)}
         onExitMobileView={() => setAppMode('wayfinder')}
       />
     );
@@ -1319,7 +1333,11 @@ export function App() {
         ) : null}
 
         {/* Center: Interactive Blueprint Canvas or 3D Isometric View */}
-        <section className="flex-1 relative overflow-hidden bg-[#F7F7F5]">
+        <section
+          className={`flex-1 relative overflow-hidden bg-[#F7F7F5] ${
+            appMode === 'wayfinder' && mobileWayfinderTab === 'route' ? 'hidden lg:block' : 'block'
+          }`}
+        >
           {appMode === '3d' ? (
             <Isometric3DView
               building={activeBuilding}
@@ -1414,11 +1432,44 @@ export function App() {
               onUpdateFloor={handleUpdateFloor}
             />
           )}
+
+          {/* Floating Mobile Wayfinding Quick Bar when viewing Map tab */}
+          {appMode === 'wayfinder' && mobileWayfinderTab === 'map' && (
+            <div className="lg:hidden absolute bottom-3 left-3 right-3 z-20 pointer-events-auto">
+              <div className="bg-white/95 backdrop-blur-md border-2 border-[#1A3C2B] p-2 shadow-2xl flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <div className="w-8 h-8 bg-[#F0F5F2] border border-[#1A3C2B] flex items-center justify-center flex-shrink-0">
+                    <Navigation className="w-4 h-4 text-[#047857]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-[9px] font-bold text-[#1A3C2B]/60 uppercase truncate">
+                      {routeResult ? `${routeResult.totalDistanceMeters}m • ~${routeResult.estimatedTimeMinutes}p` : 'NINCS AKTÍV ÚTVONAL'}
+                    </div>
+                    <div className="font-bold text-xs text-[#1A3C2B] truncate">
+                      {targetRoomId
+                        ? activeFloor.rooms.find((r) => r.id === targetRoomId)?.name || 'Cél kiválasztva'
+                        : 'Válassz ki egy célt a térképen vagy a tervezőben!'}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setMobileWayfinderTab('route')}
+                  className="px-3 py-1.5 bg-[#1A3C2B] text-white font-mono text-xs font-bold flex-shrink-0"
+                >
+                  TERVEZŐ
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Right Sidebar: Wayfinder Route Planner & Turn-by-Turn Guidance */}
         {appMode === 'wayfinder' && (
-          <aside className="w-80 md:w-96 flex-shrink-0 border-l border-[#1A3C2B] bg-[#F7F7F5] z-10">
+          <aside
+            className={`w-full lg:w-80 xl:w-96 flex-shrink-0 border-l border-[#1A3C2B] bg-[#F7F7F5] z-10 ${
+              mobileWayfinderTab === 'map' ? 'hidden lg:flex' : 'flex'
+            }`}
+          >
             <WayfinderPanel
               building={activeBuilding}
               currentFloor={activeFloor}
@@ -1439,6 +1490,7 @@ export function App() {
                 if (step.floorId !== activeFloor.id) {
                   setActiveFloorId(step.floorId);
                 }
+                setMobileWayfinderTab('map');
               }}
               onStartSimulation={() => setIsSimulating(true)}
               onPauseSimulation={() => setIsSimulating(false)}
@@ -1467,6 +1519,35 @@ export function App() {
           />
         )}
       </main>
+
+      {/* 2.5 Mobile Navigation Bottom Tab Bar (< 1024px) */}
+      {appMode === 'wayfinder' && (
+        <nav aria-label="Mobil navigáció" className="lg:hidden flex items-center border-t-2 border-[#1A3C2B] bg-white z-20 font-mono text-xs font-bold safe-bottom">
+          <button
+            onClick={() => setMobileWayfinderTab('map')}
+            className={`flex-1 py-2.5 flex items-center justify-center gap-1.5 transition-colors ${
+              mobileWayfinderTab === 'map'
+                ? 'bg-[#1A3C2B] text-white'
+                : 'text-[#1A3C2B] hover:bg-[#F0F5F2]'
+            }`}
+          >
+            <Compass className="w-4 h-4" />
+            <span>TÉRKÉP NÉZET</span>
+          </button>
+          <div className="w-[1px] h-6 bg-[#1A3C2B]/30" />
+          <button
+            onClick={() => setMobileWayfinderTab('route')}
+            className={`flex-1 py-2.5 flex items-center justify-center gap-1.5 transition-colors ${
+              mobileWayfinderTab === 'route'
+                ? 'bg-[#1A3C2B] text-white'
+                : 'text-[#1A3C2B] hover:bg-[#F0F5F2]'
+            }`}
+          >
+            <Navigation className="w-4 h-4" />
+            <span>ÚTVONALTERVEZŐ {routeResult ? `(${routeResult.steps.length})` : ''}</span>
+          </button>
+        </nav>
+      )}
 
       {/* 3. Global Interactive Modals */}
       <CampusDirectoryModal

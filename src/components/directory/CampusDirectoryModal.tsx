@@ -90,7 +90,7 @@ export const CampusDirectoryModal: React.FC<CampusDirectoryModalProps> = ({
         </div>
 
         {/* Filter Controls (Bento Top Bar) */}
-        <div className="p-4 bg-white border-b border-[#1A3C2B] flex flex-col gap-3">
+        <div className="p-3 sm:p-4 bg-white border-b border-[#1A3C2B] flex flex-col gap-2.5">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             {/* Campus Selector Pill */}
             <select
@@ -110,7 +110,7 @@ export const CampusDirectoryModal: React.FC<CampusDirectoryModalProps> = ({
               <Search className="w-4 h-4 text-[#1A3C2B]/60 mr-2 flex-shrink-0" />
               <input
                 type="text"
-                placeholder="Keresés termek, professzorok, laborok, előadók, szolgáltatások között..."
+                placeholder="Keresés termek, tanárok, laborok, előadók között..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-transparent font-sans text-xs text-[#1A3C2B] focus:outline-none"
@@ -126,14 +126,14 @@ export const CampusDirectoryModal: React.FC<CampusDirectoryModalProps> = ({
             </div>
           </div>
 
-          {/* Category Filter Chips */}
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="font-mono text-[9px] uppercase font-bold text-[#1A3C2B]/60 mr-1">
+          {/* Category Filter Chips (Horizontally Scrollable on Mobile) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-1 no-scrollbar">
+            <span className="font-mono text-[9px] uppercase font-bold text-[#1A3C2B]/60 mr-1 flex-shrink-0">
               KATEGÓRIA:
             </span>
             <button
               onClick={() => setSelectedCategory('all')}
-              className={`font-mono text-[10px] px-2 py-0.5 border transition-colors ${
+              className={`font-mono text-[10px] px-2.5 py-1 border transition-colors flex-shrink-0 font-bold ${
                 selectedCategory === 'all'
                   ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
                   : 'bg-white text-[#1A3C2B] border-[#D0D0C7] hover:border-[#1A3C2B]'
@@ -145,7 +145,7 @@ export const CampusDirectoryModal: React.FC<CampusDirectoryModalProps> = ({
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`font-mono text-[10px] px-2 py-0.5 border transition-colors ${
+                className={`font-mono text-[10px] px-2.5 py-1 border transition-colors flex-shrink-0 font-bold ${
                   selectedCategory === cat
                     ? 'bg-[#1A3C2B] text-white border-[#1A3C2B]'
                     : 'bg-white text-[#1A3C2B] border-[#D0D0C7] hover:border-[#1A3C2B]'
@@ -158,7 +158,7 @@ export const CampusDirectoryModal: React.FC<CampusDirectoryModalProps> = ({
         </div>
 
         {/* Directory Grid */}
-        <div className="p-4 flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="p-3 sm:p-4 flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-2.5">
           {filteredRooms.map(({ room, floor, building }) => {
             const area = polygonAreaInSquareMeters(room.polygon).toFixed(0);
             return (
